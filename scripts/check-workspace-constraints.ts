@@ -48,10 +48,18 @@ const repositoryUrl = 'git+https://github.com/deepseek-harness/deepseek-harness.
  * their trusted publishing against the repository that runs the workflow.
  */
 const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harness.git'
+const communityRepositoryUrl = 'git+https://github.com/jiazhengfu912-lang/dsh-desktop-community.git'
 /** Private packages that participate in workspace checks but not releases. */
 const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** npm namespace reserved for private experimental packages. */
 const experimentalPackageNamePrefix = '@deepseek-ai/dsh-experimental-'
+/** Community-only assemblies distributed inside the Windows application, never through npm. */
+const privateCommunityAssemblyDirectories = new Set([
+  'apps/desktop',
+  'packages/client/ui-brand-community',
+  'packages/extensions/document-viewer',
+  'packages/host/directory-picker-electron',
+])
 /** Directories whose packages this repository publishes: one release member each. */
 const releaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/[^/]+|vendor\/[^/]+)$/
 
@@ -254,8 +262,27 @@ export function checkExperimentalManifest({ dir, manifest }: WorkspaceManifest):
   return errors
 }
 
+/** Enforce source metadata for private assemblies shipped only inside the community desktop app. */
+export function checkPrivateCommunityAssemblyManifest({ dir, manifest }: WorkspaceManifest): string[] {
+  if (!privateCommunityAssemblyDirectories.has(dir)) return []
+  const label = manifest.name ?? dir
+  const errors: string[] = []
+  if (manifest.private !== true) errors.push(`${label}: community assembly must set "private": true`)
+  if (manifest.publishConfig !== undefined) errors.push(`${label}: community assembly must omit publishConfig`)
+  if (manifest.repository?.type !== 'git'
+    || manifest.repository.url !== communityRepositoryUrl
+    || manifest.repository.directory !== dir) {
+    errors.push(`${label}: community assembly repository must use ${communityRepositoryUrl} with directory ${dir}`)
+  }
+  return errors
+}
+
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
-  const errors = checkExperimentalManifest({ dir, manifest })
+  const isPrivateCommunityAssembly = privateCommunityAssemblyDirectories.has(dir)
+  const errors = [
+    ...checkExperimentalManifest({ dir, manifest }),
+    ...checkPrivateCommunityAssemblyManifest({ dir, manifest }),
+  ]
   const label = manifest.name ?? dir
   const isLandlockPackageDir = dir.startsWith('native/landlock-run/packages/')
   const isPublicLandlockPackage = isLandlockPackageDir
@@ -275,6 +302,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${repositoryUrl} with directory ${expectedDirectory} for trusted publishing`)
     }
+  } else if (isPrivateCommunityAssembly) {
+    // Community assemblies are distributed only inside the Electron installer.
   } else if (releaseMemberDirectory.test(dir)) {
     // Release members state that they are publishable: npm refuses a private
     // package, and the repository field is how a consumer finds the source of
@@ -314,7 +343,7 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
   }
 
-  if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/') && !isPrivateCommunityAssembly) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
@@ -341,7 +370,7 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (peer && dev && peer !== dev) {
       errors.push(`${label}: @deepseek-ai/cordis peer (${peer}) and dev (${dev}) ranges must match`)
     }
-    if (manifest.version !== repositoryVersion) {
+    if (!isPrivateCommunityAssembly && manifest.version !== repositoryVersion) {
       errors.push(`${label}: package.json version must match root version ${repositoryVersion ?? '(missing)'}`)
     }
     if (manifest.type !== 'module') {

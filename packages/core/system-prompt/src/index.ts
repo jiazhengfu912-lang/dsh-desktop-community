@@ -184,8 +184,10 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
 
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
-  /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
+  /** Include the configured deployment identity before the deployment persona (default true). */
   includeHarnessIdentity?: boolean
+  /** Order-−100 deployment identity sent to the model when identity is enabled. */
+  identity?: string
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
@@ -200,6 +202,8 @@ export interface Config {
    */
   toolOrder?: string[]
 }
+
+const DEFAULT_HARNESS_IDENTITY = 'You are an AI agent powered by DeepSeek Harness.'
 
 /**
  * Interpolate strict `{{variable}}` references, drop empty sections, and join
@@ -338,6 +342,7 @@ class PromptLayer implements ScopeLayer {
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
     includeHarnessIdentity: z.boolean().default(true),
+    identity: z.string().default(DEFAULT_HARNESS_IDENTITY),
     includeRuntimeContext: z.boolean().default(true),
     persona: z.string().default(''),
     // Preserve omission because an explicit empty order lacks the rest marker.
@@ -358,7 +363,7 @@ export class SystemPrompt extends Service {
       this.section({
         name: 'harness:identity',
         order: -100,
-        text: 'You are an AI agent powered by DeepSeek Harness.',
+        text: config.identity ?? DEFAULT_HARNESS_IDENTITY,
       })
     }
     this.section({

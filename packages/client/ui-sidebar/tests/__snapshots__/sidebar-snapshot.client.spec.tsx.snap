@@ -26,12 +26,12 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
             style="display: contents;"
           >
             <svg
-              aria-hidden="true"
-              data-content="965fe321"
+              data-content="c0ce4dcc"
               fill="none"
-              height="17.6580310880829"
-              viewBox="0 0 23.16 17.04"
-              width="24"
+              height="18"
+              viewBox="0 0 16 16"
+              width="18"
+              xmlns="http://www.w3.org/2000/svg"
             />
           </div>
         </span>
@@ -92,7 +92,7 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
 </div>
 `;
 
-exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsule, empty holes) 1`] = `
+exports[`sidebar shell snapshots > renders the expanded column (neutral action fallbacks and controls) 1`] = `
 <div
   data-slot="sidebar"
   style="display: contents;"
@@ -121,12 +121,12 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
               style="display: contents;"
             >
               <svg
-                aria-hidden="true"
-                data-content="965fe321"
+                data-content="c0ce4dcc"
                 fill="none"
-                height="17.6580310880829"
-                viewBox="0 0 23.16 17.04"
-                width="24"
+                height="18"
+                viewBox="0 0 16 16"
+                width="18"
+                xmlns="http://www.w3.org/2000/svg"
               />
             </div>
           </span>
@@ -138,14 +138,9 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
               style="display: contents;"
             >
               <span
-                class="fallbackBrandName"
+                class="fallbackActionName"
               >
-                DSH Local Build
-              </span>
-              <span
-                class="buildRevision"
-              >
-                abc1234
+                New Session
               </span>
             </div>
           </span>
@@ -247,12 +242,12 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
               style="display: contents;"
             >
               <svg
-                aria-hidden="true"
-                data-content="965fe321"
+                data-content="c0ce4dcc"
                 fill="none"
-                height="17.6580310880829"
-                viewBox="0 0 23.16 17.04"
-                width="24"
+                height="18"
+                viewBox="0 0 16 16"
+                width="18"
+                xmlns="http://www.w3.org/2000/svg"
               />
             </div>
           </span>
@@ -264,14 +259,9 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
               style="display: contents;"
             >
               <span
-                class="fallbackBrandName"
+                class="fallbackActionName"
               >
-                DSH Local Build
-              </span>
-              <span
-                class="buildRevision"
-              >
-                abc1234
+                新会话
               </span>
             </div>
           </span>

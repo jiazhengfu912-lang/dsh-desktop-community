@@ -1,0 +1,152 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  background: #09111f;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.dsh-splash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #e8fffa;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(73, 168, 255, .14), transparent 34%),
+    linear-gradient(145deg, #111d33, #08101d 72%);
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+.dsh-splash::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background-image:
+    linear-gradient(rgba(112, 240, 210, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(112, 240, 210, .035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(circle, #000 12%, transparent 68%);
+}
+
+.dsh-splash--fade { opacity: 0; }
+
+.dsh-splash-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(520px, calc(100vw - 64px));
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.dsh-splash-signal {
+  position: absolute;
+  top: 78px;
+  width: 230px;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(112, 240, 210, .13);
+}
+
+.dsh-splash-signal::after {
+  position: absolute;
+  width: 72px;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, #70f0d2, transparent);
+  animation: signal-scan 2.6s ease-in-out infinite;
+}
+
+.dsh-splash-mark {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  filter: drop-shadow(0 18px 34px rgba(73, 168, 255, .22));
+  animation: mark-breathe 2.6s ease-in-out infinite;
+}
+
+.dsh-splash-mark svg { display: block; width: 100%; height: 100%; }
+
+.dsh-splash-label {
+  margin: 10px 0 0;
+  color: #e8fffa;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: .035em;
+}
+
+.dsh-splash-loading {
+  margin: 0;
+  color: #8da5bd;
+  font-size: 13px;
+  letter-spacing: .015em;
+}
+
+.dsh-splash--error .dsh-splash-stage { opacity: .13; filter: blur(3px); }
+
+.dsh-splash-error-panel {
+  position: absolute;
+  z-index: 2;
+  width: min(560px, calc(100vw - 48px));
+  padding: 28px;
+  border: 1px solid rgba(112, 240, 210, .16);
+  border-radius: 16px;
+  background: rgba(14, 24, 41, .96);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, .48);
+}
+
+.dsh-splash-error-title { margin: 0 0 12px; font-size: 18px; }
+
+.dsh-splash-error-detail {
+  max-height: 200px;
+  margin: 0 0 20px;
+  overflow: auto;
+  color: #ffc5c5;
+  font: 12px/1.5 "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dsh-splash-error-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.dsh-splash-btn {
+  padding: 9px 16px;
+  border: 1px solid #3b4b60;
+  border-radius: 8px;
+  color: #e8fffa;
+  background: #1a2a40;
+  font: 600 14px "Segoe UI Variable", "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.dsh-splash-btn:hover { background: #233750; }
+.dsh-splash-btn--primary { border-color: #70f0d2; color: #09111f; background: #70f0d2; }
+.dsh-splash-btn--primary:hover { background: #8ff7df; }
+
+@keyframes mark-breathe {
+  0%, 100% { transform: translateY(0); filter: drop-shadow(0 18px 34px rgba(73, 168, 255, .20)); }
+  50% { transform: translateY(-5px); filter: drop-shadow(0 22px 42px rgba(112, 240, 210, .28)); }
+}
+
+@keyframes signal-scan {
+  0% { transform: translateX(-80px); opacity: 0; }
+  18%, 82% { opacity: 1; }
+  100% { transform: translateX(238px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsh-splash-mark, .dsh-splash-signal::after { animation: none; }
+}
+
+.dsh-splash--reduced-motion .dsh-splash-mark,
+.dsh-splash--reduced-motion .dsh-splash-signal::after { animation: none; }

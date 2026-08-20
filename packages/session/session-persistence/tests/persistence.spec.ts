@@ -5,7 +5,8 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix, type StoredSuffix,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type SessionWriterLease, type StoredPrefix, type StoredSuffix,
+  type WriteCommit, type WriteExpectation,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
@@ -58,6 +59,7 @@ interface CoordinatorInternals {
     writes: { pending: unknown[]; active: Promise<void> | undefined; hasWork: boolean }
   }>
   chains: Map<unknown, unknown>
+  leases: Map<unknown, unknown>
   retirements: Map<unknown, Promise<void>>
 }
 
@@ -136,29 +138,50 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return entry === undefined ? undefined : memoryRevision(entry)
   }
 
-  async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
+  async acquireWriter(_meta: SessionHeader): Promise<SessionWriterLease | undefined> {
+    return { token: 'memory:lease' }
+  }
+
+  async releaseWriter(_meta: SessionHeader, _lease: SessionWriterLease): Promise<void> {}
+
+  async appendBatch(
+    m: SessionHeader,
+    events: readonly SessionEvent[],
+    _isMaterialized: boolean,
+    _expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     // Defense-in-depth: the coordinator already validates serializability, but a
     // durable store must reject non-JSON data at its own boundary too.
     for (const e of events) {
       if (!isJsonValue(e.data)) throw new Error(`event "${e.type}" carries non-JSON-serializable data`)
     }
     const existing = this.store.get(m.id)
+    let entry: { meta: SessionHeader; events: SessionEvent[] }
     if (!existing) {
       // The coordinator sends the first batch for materialization; later batches append.
-      this.store.set(m.id, { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] })
+      entry = { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] }
+      this.store.set(m.id, entry)
     } else {
-      existing.events.push(...structuredClone(events) as SessionEvent[])
+      entry = existing
+      entry.events.push(...structuredClone(events) as SessionEvent[])
     }
+    return { revision: memoryRevision(entry) }
   }
 
-  async commitRepair(m: SessionHeader, _tornMarker: undefined, closers: readonly SessionEvent[]): Promise<void> {
+  async commitRepair(
+    m: SessionHeader,
+    _tornMarker: undefined,
+    closers: readonly SessionEvent[],
+    _expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     // No torn tails in a Map store, so `_tornMarker` is always undefined; only the
     // synthetic closers are appended (the same DELETE+INSERT a DB backend does,
     // minus the truncate).
     const entry = this.store.get(m.id)
     /* v8 ignore next -- commitRepair only runs for a materialized (stored) session */
-    if (!entry) return
+    if (!entry) return { revision: memoryRevision({ meta: m, events: [] }) }
     if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
+    return { revision: memoryRevision(entry) }
   }
 
   async list(signal?: AbortSignal): Promise<SessionHeader[]> {
@@ -184,8 +207,10 @@ class ControlledBackend implements PersistenceBackend<never> {
   appendAttempts = 0
   loadAttempts = 0
   repairAttempts = 0
+  releaseAttempts = 0
   beforeAppend?: (attempt: number) => Promise<void>
   beforeLoadStored?: (attempt: number, signal?: AbortSignal) => Promise<void>
+  beforeRelease?: (attempt: number) => Promise<void>
   /** When set, the declared seek hook delegates here so readFrom exercises it; unset throws (tests set it first). */
   seekHook?: (id: SessionId, fromSeq: number, signal?: AbortSignal) => Promise<StoredSuffix | undefined>
 
@@ -212,22 +237,48 @@ class ControlledBackend implements PersistenceBackend<never> {
     return entry === undefined ? undefined : memoryRevision(entry)
   }
 
-  async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
+  async acquireWriter(_meta: SessionHeader): Promise<SessionWriterLease | undefined> {
+    return { token: 'memory:controlled:lease' }
+  }
+
+  async releaseWriter(_meta: SessionHeader, _lease: SessionWriterLease): Promise<void> {
+    await this.beforeRelease?.(++this.releaseAttempts)
+  }
+
+  async appendBatch(
+    m: SessionHeader,
+    events: readonly SessionEvent[],
+    _isMaterialized: boolean,
+    _expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     this.lastAppendedBatch = events
     const attempt = ++this.appendAttempts
     await this.beforeAppend?.(attempt)
-    const entry = this.store.get(m.id)
-    if (entry === undefined) {
-      this.store.set(m.id, { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] })
+    const existing = this.store.get(m.id)
+    let entry: { meta: SessionHeader; events: SessionEvent[] }
+    if (existing === undefined) {
+      entry = { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] }
+      this.store.set(m.id, entry)
     } else {
+      entry = existing
       entry.events.push(...structuredClone(events) as SessionEvent[])
     }
+    return { revision: memoryRevision(entry) }
   }
 
-  async commitRepair(m: SessionHeader, _tornMarker: undefined, closers: readonly SessionEvent[]): Promise<void> {
+  async commitRepair(
+    m: SessionHeader,
+    _tornMarker: undefined,
+    closers: readonly SessionEvent[],
+    _expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     this.repairAttempts += 1
     const entry = this.store.get(m.id)
-    if (entry !== undefined) entry.events.push(...structuredClone(closers) as SessionEvent[])
+    if (entry !== undefined) {
+      entry.events.push(...structuredClone(closers) as SessionEvent[])
+      return { revision: memoryRevision(entry) }
+    }
+    return { revision: memoryRevision({ meta: m, events: [] }) }
   }
 
   async list(): Promise<SessionHeader[]> {
@@ -1037,8 +1088,8 @@ describe('PersistenceCoordinator session preparations', () => {
       events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
     })
     const commitRepair = backend.commitRepair.bind(backend)
-    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers) => {
-      await commitRepair(header, tornMarker, closers)
+    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers, expected) => {
+      await commitRepair(header, tornMarker, closers, expected)
       const entry = backend.store.get(id)
       if (entry === undefined) throw new Error('test repair must keep storage materialized')
       const seq = entry.events.length
@@ -1046,6 +1097,7 @@ describe('PersistenceCoordinator session preparations', () => {
         { type: 'turn/start', seq, time: 3, data: { turn: 2 } },
         { type: 'turn/end', seq: seq + 1, time: 4, data: { turn: 2, reason: { kind: 'completed' } } },
       )
+      return { revision: memoryRevision(entry) }
     })
     let coordinator!: PersistenceCoordinator<never>
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -1082,9 +1134,10 @@ describe('PersistenceCoordinator session preparations', () => {
       events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
     })
     const commitRepair = backend.commitRepair.bind(backend)
-    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers) => {
-      await commitRepair(header, tornMarker, closers)
+    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers, expected) => {
+      await commitRepair(header, tornMarker, closers, expected)
       backend.store.delete(id)
+      return { revision: memoryRevision({ meta: header, events: [] }) }
     })
     let coordinator!: PersistenceCoordinator<never>
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
@@ -1774,6 +1827,47 @@ describe('PersistenceCoordinator retirement', () => {
       expect(backend.lifecycle).toEqual(['append-started', 'append-committed', 'close'])
     } finally {
       appendGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('backend teardown waits for writer release before close', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const releaseGate = Promise.withResolvers<boolean>()
+
+    try {
+      const id = SessionId('inflight-writer-release')
+      await coordinator.create(meta(id))
+      await coordinator.append(id, [{
+        type: 'turn/start',
+        seq: 0,
+        time: 1,
+        data: { turn: 1 },
+      }])
+      backend.beforeRelease = async () => {
+        backend.lifecycle.push('release-started')
+        await releaseGate.promise
+        backend.lifecycle.push('release-finished')
+      }
+
+      let disposed = false
+      const teardown = fiber.dispose().then(() => { disposed = true })
+      await vi.waitFor(() => { expect(backend.releaseAttempts).toBe(1) })
+      expect(disposed).toBe(false)
+      expect(backend.lifecycle).toEqual(['release-started'])
+
+      releaseGate.resolve(true)
+      await teardown
+      expect(backend.lifecycle).toEqual(['release-started', 'release-finished', 'close'])
+    } finally {
+      releaseGate.resolve(true)
       await fiber.dispose()
       await ctx.fiber.dispose()
     }

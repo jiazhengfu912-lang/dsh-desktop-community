@@ -8,7 +8,9 @@ import type { HostDescription, IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
+import { IpcApiClient } from './ipc-api-client.ts'
 import { createWebConnectionRpc } from './rpc.ts'
+import { desktopIpcFetch } from './desktop-bridge.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
@@ -64,7 +66,7 @@ export interface ConnectionHandle {
   readonly isLoopback: boolean
   /** Generation-scoped Host facts, including the account home and native path-open capability. */
   readonly hostDescription: HostDescriptionSource
-  /** Generic logical RPC channels over the same Connection transport. */
+  /** Generic logical RPC channels over same-origin HTTP routes. */
   readonly rpc: ClientConnectionRpc
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
@@ -85,7 +87,12 @@ export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
+  // Desktop (Electron) selects the IPC carrier when its bridge is installed;
+  // the browser keeps the WebApiClient/WebSocket transport unchanged.
+  const ipcFetch = desktopIpcFetch()
+  const api: IApiClient = fixtureClient ?? (ipcFetch !== undefined ? new IpcApiClient() : new WebApiClient())
+  // Generated Remotes are WebServer routes even on Desktop. The core API uses
+  // IPC, while these routes stay on the window's loopback HTTP origin.
   const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
   let started = false
   let description: HostDescription | undefined

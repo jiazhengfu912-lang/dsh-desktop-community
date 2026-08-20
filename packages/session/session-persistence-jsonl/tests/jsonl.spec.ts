@@ -24,10 +24,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     ...actual,
     stat: (async (...args: Parameters<typeof actual.stat>) => {
       const identity = await actual.stat(...args)
-      if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
+      if (String(args[0]) !== statRace.path) return identity
       statRace.reads += 1
       if (statRace.reads !== 2) return identity
-      return { ...identity, mtimeNs: identity.mtimeNs + 1n }
+      Object.defineProperty(identity, 'size', { value: BigInt(identity.size) + 1n })
+      return identity
     }) as typeof actual.stat,
   }
 })
@@ -129,6 +130,7 @@ runCoordinatorContract('jsonl-none', async (): Promise<CoordinatorFixture> => {
       // the coordinator sees a tornMarker to truncate.
       await appendFile(rawLogPath(dir, cwd, id), '{"type":"assistant/chunk","seq":8,"ti')
     },
+    supportsWriterLease: true,
     cleanup: async () => { await rm(dir, { recursive: true, force: true }) },
   }
 })

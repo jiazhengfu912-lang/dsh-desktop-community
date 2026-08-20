@@ -140,6 +140,7 @@ runCoordinatorContract('jsonl-zstd', async (): Promise<CoordinatorFixture> => {
       const partial = await tornFrame(line, decoded => decoded.length > 0 && !decoded.endsWith('\n'))
       await appendFile(logPath(root, cwd, id, 'zstd'), partial)
     },
+    supportsWriterLease: true,
     cleanup: async () => { await rm(root, { recursive: true, force: true }) },
   }
 })

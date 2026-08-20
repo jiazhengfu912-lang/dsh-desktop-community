@@ -12,7 +12,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import {
   DEFAULT_PROFILE_BUNDLES,
   initProfile,
@@ -26,6 +26,76 @@ import {
 import { INSTALL_ANCHOR } from './profile-boot.ts'
 
 const NAME = 'dsh'
+const DESKTOP_APP_EXECUTABLE_ENV = 'DSH_DESKTOP_APP_EXECUTABLE'
+const DESKTOP_PNPM_ENTRY_ENV = 'DSH_DESKTOP_PNPM_ENTRY'
+const DESKTOP_CLEAR_ENVIRONMENT_URL_ENV = 'DSH_DESKTOP_CLEAR_ENVIRONMENT_URL'
+const RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE'
+
+/** Executable and argv selected for one pnpm invocation. */
+export interface PnpmInvocation {
+  readonly file: string
+  readonly args: readonly string[]
+  readonly shell: boolean
+  readonly environment?: NodeJS.ProcessEnv
+}
+
+function environmentValue(environment: NodeJS.ProcessEnv, expected: string): string | undefined {
+  const direct = environment[expected]
+  if (direct !== undefined) return direct
+  if (process.platform !== 'win32') return undefined
+  return Object.entries(environment).find(([name]) => name.toUpperCase() === expected)?.[1]
+}
+
+function requiredDesktopPath(label: string, value: string | undefined): string {
+  if (value === undefined || !isAbsolute(value) || /[\0\r\n]/u.test(value)) {
+    throw new Error(`${NAME}: Desktop ${label} must be an absolute path without NUL or newlines`)
+  }
+  return value
+}
+
+/**
+ * Select the normal PATH command or the Electron-owned shell-free pnpm entry.
+ * @param args - pnpm arguments after filesystem-spec anchoring.
+ * @param environment - environment supplied by the invoking Host.
+ * @param platform - command lookup behavior for the ordinary CLI.
+ * @returns executable, argv, shell mode, and optional child environment.
+ */
+export function resolvePnpmInvocation(
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): PnpmInvocation {
+  const appExecutable = environmentValue(environment, DESKTOP_APP_EXECUTABLE_ENV)
+  const pnpmEntry = environmentValue(environment, DESKTOP_PNPM_ENTRY_ENV)
+  const clearEnvironmentUrl = environmentValue(environment, DESKTOP_CLEAR_ENVIRONMENT_URL_ENV)
+  const desktopValues = [appExecutable, pnpmEntry, clearEnvironmentUrl]
+  if (desktopValues.every(value => value === undefined)) {
+    return { file: 'pnpm', args: [...args], shell: platform === 'win32' }
+  }
+  if (desktopValues.some(value => value === undefined)) {
+    throw new Error(`${NAME}: Desktop pnpm runtime environment is incomplete`)
+  }
+  const executable = requiredDesktopPath('application executable', appExecutable)
+  const entry = requiredDesktopPath('pnpm entry', pnpmEntry)
+  if (clearEnvironmentUrl === undefined || /[\0\r\n]/u.test(clearEnvironmentUrl)) {
+    throw new Error(`${NAME}: Desktop environment preloader must be a file URL without NUL or newlines`)
+  }
+  let preloader: URL
+  try {
+    preloader = new URL(clearEnvironmentUrl)
+  } catch {
+    throw new Error(`${NAME}: Desktop environment preloader must be a file URL without NUL or newlines`)
+  }
+  if (preloader.protocol !== 'file:') {
+    throw new Error(`${NAME}: Desktop environment preloader must be a file URL without NUL or newlines`)
+  }
+  return {
+    file: executable,
+    args: ['--import', preloader.href, entry, ...args],
+    shell: false,
+    environment: { ...environment, [RUN_AS_NODE_ENV]: '1' },
+  }
+}
 
 /**
  * Whether a resolved dependency exports a profile patch, i.e. is a bundle.
@@ -126,10 +196,12 @@ export function runPlugin(profile: string, args: readonly string[]): number {
   const before = readProfileManifest(NAME, dir)
   // Windows resolves pnpm through its .cmd shim, which spawn() refuses
   // without a shell since the CVE-2024-27980 hardening.
-  const result = spawnSync('pnpm', args.map(argument => anchorPathSpec(argument, process.cwd())), {
+  const invocation = resolvePnpmInvocation(args.map(argument => anchorPathSpec(argument, process.cwd())))
+  const result = spawnSync(invocation.file, invocation.args, {
     cwd: dir,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: invocation.shell,
+    ...(invocation.environment === undefined ? {} : { env: invocation.environment }),
   })
   if (result.error !== undefined) {
     const code = (result.error as NodeJS.ErrnoException).code

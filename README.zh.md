@@ -1,76 +1,86 @@
-# DeepSeek Harness
+# DSH Desktop Community
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+DSH Desktop Community 是开源 [DSH agent harness（智能体框架）](https://github.com/deepseek-ai/deepseek-harness)的独立 Windows 发行版。这个完整 monorepo 保留上游插件架构和 `@deepseek-ai/*` 兼容命名空间，同时增加打包 Electron 应用、Windows 安装程序和社区发行工作流。
 
-它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+> 本项目由社区贡献者维护，不是 DeepSeek 官方产品，也未获得 DeepSeek 背书。“DeepSeek”仅用于标识上游项目和兼容命名空间；本发行版使用独立名称和美术资源。
 
-## 开发者预览
+## 下载
 
-DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
+[**下载适用于 Windows x64 的 DSH Desktop Community**](https://github.com/jiazhengfu912-lang/dsh-desktop-community/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe)
 
-## 运行
+首个版本是未签名的社区预览版。Windows SmartScreen 可能显示未知发布者警告。请只从本仓库的 [Releases](https://github.com/jiazhengfu912-lang/dsh-desktop-community/releases) 页面下载，并将安装程序与同一版本中的 `SHA256SUMS.txt` 进行比对：
 
-### 通过 `npm` 运行
-
-安装 `Node.js`，然后运行：
-
-```sh
-npx @deepseek-ai/dsh web
+```powershell
+Get-FileHash .\DSH-Desktop-Community-Setup-x64.exe -Algorithm SHA256
 ```
 
-该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.md)。
+<a id="run"></a>
 
-### 从源码运行
+## 系统要求与安装
 
-如需从仓库源码运行：
+- 运行在 x64 硬件上的 Windows 10 或 Windows 11。
+- 已通过 DSH 设置配置模型提供方和凭据。
+- 仅 `github:`、`git+https:` 和其他由 Git 支持的插件需要 [Git for Windows](https://git-scm.com/download/win)。注册表和本地文件插件使用应用管理的 pnpm 运行时。
 
-```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
-pnpm install
+安装或更新前，关闭所有 DSH Web Host 和桌面实例，然后运行下载的安装程序。DSH Desktop Community 使用独立应用身份，不会替换上游品牌安装。预览版没有自动更新程序；请下载并运行新版本安装程序进行更新。
+
+从 Windows 卸载只会移除应用，并保留用户 DSH Host 数据。启动、插件运行时、存储、更新和卸载细节见[桌面应用参考](apps/desktop/README.md)。
+
+## 本地 DSH 数据复用
+
+在同一台电脑、同一个 Windows 用户且 `DSH_HOME` 相同时，Desktop 会打开现有 `web` profile，并原位复用健康的本地 Host 数据。这不是完整迁移或同步功能。
+
+| 复用 | 不迁移或修复 |
+| --- | --- |
+| 相同 `DSH_HOME` 下的会话、附件、设置、凭据引用、profiles、插件声明、预设和用户 skills | 浏览器 `localStorage`、草稿、布局、选中状态、云端会话、其他电脑或用户的数据以及损坏的会话日志 |
+| 绝对项目路径仍可访问的工作区记录 | 项目文件本身或原路径不可访问的工作区 |
+
+仅当桌面进程接收到相同的持久 `DSH_HOME` 环境变量时，自定义 Web Host home 才会被共享。不要让 Web 和 Desktop Host 同时使用一个 home。完整的数据和并发限制由[桌面应用参考](apps/desktop/README.md)说明。
+
+## 仓库架构
+
+```mermaid
+flowchart LR
+  Window[Electron window] -->|IPC API| Host[Local DSH Host]
+  Window -->|HTTP and WebSocket plugin routes| Host
+  Host --> Profile[web profile]
+  Profile --> Home[DSH_HOME]
+  Host --> Runtime[App-managed plugin runtime]
+```
+
+桌面应用依赖 Host、客户端、会话、设置和插件层中的多个工作区包，因此本仓库保留完整 DSH monorepo。应用入口见[桌面应用参考](apps/desktop/README.md)，共享组件见上游[架构参考](docs/architecture.md)。
+
+<a id="run-from-source"></a>
+
+## 从源码构建
+
+安装 Node.js `^22.19.0` 或 `>=24.0.0` 以及 pnpm `11.7.0`，然后运行：
+
+```powershell
+git clone https://github.com/jiazhengfu912-lang/dsh-desktop-community.git
+Set-Location dsh-desktop-community
+corepack enable pnpm
+pnpm install --frozen-lockfile
 pnpm run build
-pnpm dsh web
+pnpm --filter @deepseek-ai/dsh-desktop typecheck
+pnpm --filter @deepseek-ai/dsh-desktop test
+pnpm --filter @deepseek-ai/dsh-desktop package
 ```
 
-`pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
+生成的安装程序属于 GitHub Releases，不进入 Git 历史。每个发行版都包含安装程序、`SHA256SUMS.txt` 和 `build-info.json`；其 Windows 工作流覆盖源码检查、打包启动和插件冒烟测试、安装、已安装启动、元数据与许可证检查以及卸载。
 
-## 社区与支持
+## 发行限制
 
-- 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+- Windows x64 是唯一打包平台。
+- 安装程序未签名，可能触发 SmartScreen。
+- 预览版没有自动更新程序。
+- 预发行 DSH 数据格式在不相关版本之间不提供通用兼容保证。
+- 不提供跨电脑传输、浏览器 UI 状态导入、云端导入和损坏日志修复。
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">企微小助手</th>
-      <th align="center">入群问卷</th>
-      <th align="center">微信公众号</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
-      <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
-      <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
+## 社区与许可证
 
-## 参与贡献
+请通过[支持](SUPPORT.md)确定应使用 Discussions、桌面 bug 报告还是上游报告。报告漏洞前请阅读[安全政策](SECURITY.md)，提交 PR 前请阅读[贡献指南](CONTRIBUTING.md)。
 
-参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 开发
-
-请先阅读[开发指南](docs/development.md)与[架构文档](docs/architecture.md)。
-
-面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-[MIT](LICENSE)
-
-第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+源码采用 [MIT License](LICENSE)。第三方包及其许可证列于 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

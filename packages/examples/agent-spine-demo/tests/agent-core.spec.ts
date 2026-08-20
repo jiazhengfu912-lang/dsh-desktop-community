@@ -734,6 +734,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       model: 'entrypoint-only',
       maxParallelToolCalls: 3,
       includeHarnessIdentity: false,
+      identity: 'You are an application-owned agent.',
       includeRuntimeContext: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],
@@ -752,6 +753,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
       maxParallelToolCalls: appConfig.maxParallelToolCalls,
       includeHarnessIdentity: appConfig.includeHarnessIdentity,
+      identity: appConfig.identity,
       includeRuntimeContext: appConfig.includeRuntimeContext,
       persona: appConfig.persona,
       toolOrder: appConfig.toolOrder,

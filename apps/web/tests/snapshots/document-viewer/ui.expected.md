@@ -1,0 +1,41 @@
+## Better Sidebar document preview
+
+- button "Expand bottom panel":
+  - img
+- button "Collapse sidebar":
+  - img
+- img
+- text: README.md
+- button "Close":
+  - img
+- button "New tab":
+  - img
+- textbox "{{cwd}}\\workspace\\README.md":
+  - /placeholder: File path (relative to the session directory or absolute), Enter to open
+  - text: README.md
+- button "File tree panel" [pressed]:
+  - img
+- heading "Workspace Preview" [level=1]
+- list:
+  - listitem: GFM item
+- paragraph:
+  - math: E = m c 2
+- separator "File tree panel"
+- textbox "Search files by name…"
+- button "Refresh":
+  - img
+- img
+- text: workspace
+- button "README.md @file":
+  - img
+  - text: README.md
+  - button "@file"
+- button "sample.docx":
+  - img
+  - text: sample.docx
+- button "sample.pdf":
+  - img
+  - text: sample.pdf
+- button "sample.pptx":
+  - img
+  - text: sample.pptx

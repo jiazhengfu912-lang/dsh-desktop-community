@@ -14,8 +14,8 @@ import {
 } from '@deepseek-ai/dsh-session'
 import { sql } from './sql.ts'
 
-/** Current physical-record schema with packed and compressed event rows. */
-export const SCHEMA_VERSION = 17
+/** Current physical-record schema with packed events and writer leases. */
+export const SCHEMA_VERSION = 18
 /** Application id reserved for DeepSeek Harness SQLite session databases. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
 
@@ -120,7 +120,7 @@ function configureDatabase(
     if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
       throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
     }
-    if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
+    if (onDisk !== 0 && onDisk !== 17 && onDisk !== SCHEMA_VERSION) {
       throw new Error(
         `session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`,
       )
@@ -131,6 +131,7 @@ function configureDatabase(
       )
     }
     if (onDisk === 0) initializeDatabase(db)
+    else if (onDisk === 17) migrateDatabase17To18(Database, db, path)
     validateRequiredSchema(Database, db, path)
     db.exec(sql('commit'))
     began = false
@@ -206,19 +207,35 @@ function initializeDatabase(db: DatabaseSync): void {
   db.exec(sql('schema'))
   db.prepare(sql('insert-persistence-state')).run(randomUUID())
   db.exec(sql('set-application-id'))
-  db.exec(sql('set-user-version-17'))
+  db.exec(sql('set-user-version-18'))
 }
 
-let canonicalSchema: readonly SchemaObjectRow[] | undefined
+function migrateDatabase17To18(
+  Database: DatabaseSyncConstructor,
+  db: DatabaseSync,
+  path: string,
+): void {
+  validateRequiredSchema(Database, db, path, 'schema-v17')
+  db.exec(sql('migrate-17-to-18'))
+  db.exec(sql('set-user-version-18'))
+}
 
-function expectedSchema(Database: DatabaseSyncConstructor): readonly SchemaObjectRow[] {
-  if (canonicalSchema !== undefined) return canonicalSchema
+type SchemaResource = 'schema' | 'schema-v17'
+const canonicalSchemas = new Map<SchemaResource, readonly SchemaObjectRow[]>()
+
+function expectedSchema(
+  Database: DatabaseSyncConstructor,
+  resource: SchemaResource,
+): readonly SchemaObjectRow[] {
+  const cached = canonicalSchemas.get(resource)
+  if (cached !== undefined) return cached
   const reference = new Database(':memory:')
   try {
     reference.exec(sql('foreign-keys-on'))
-    reference.exec(sql('schema'))
-    canonicalSchema = schemaObjects(reference)
-    return canonicalSchema
+    reference.exec(sql(resource))
+    const schema = schemaObjects(reference)
+    canonicalSchemas.set(resource, schema)
+    return schema
   } finally {
     reference.close()
   }
@@ -244,8 +261,9 @@ function validateRequiredSchema(
   Database: DatabaseSyncConstructor,
   db: DatabaseSync,
   path: string,
+  resource: SchemaResource = 'schema',
 ): void {
-  if (JSON.stringify(schemaObjects(db)) !== JSON.stringify(expectedSchema(Database))) {
+  if (JSON.stringify(schemaObjects(db)) !== JSON.stringify(expectedSchema(Database, resource))) {
     throw new Error(`session database at "${path}" does not contain the required schema objects`)
   }
 }

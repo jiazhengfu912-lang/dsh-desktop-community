@@ -1,0 +1,80 @@
+# Desktop transport overlay: applied over the shared web profile (base +
+# web-app bundles). The CORE apiProxy rides the Electron IPC bridge, but the
+# window is still served over a real loopback HTTP server (ephemeral port) so
+# third-party web plugins — dsh-better-sidebar, the usage widget, dshmarket —
+# keep their relative fetch()/WebSocket routes working under an http:// origin.
+# Only the web-only glue that does not apply to a packaged desktop window is
+# disabled; the client roster and host-side service rows stay as the web
+# surface composes them.
+#
+# A non-insert patch replaces the targeted row's whole key value, so each row
+# below restates every key it owns.
+
+# ── transport: keep the loopback server, drop the web-only glue ─────────────
+
+# Bind the real webserver to loopback on an OS-assigned port (no 3080, no LAN
+# exposure). The desktop's core API still rides IPC; this server exists for the
+# plugin HTTP/WS routes and to give the window a correct http:// origin.
+- id: webserver
+  inject: []
+  config:
+    host: 127.0.0.1
+    port: 0
+
+- id: web-startup
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+# The connection node half registers /api + WebSocket routes only when a web
+# server exists (now a no-op); drop its webRuntime inject/config so it does not
+# wait on the removed service. Its client half still lands in __DSH_BOOT__ and
+# selects the desktop IPC carrier from the installed bridge.
+- id: connection
+  inject: []
+  config: {}
+
+# ── community identity: desktop-only brand slot occupants ──────────────────
+
+- id: system-prompt
+  config:
+    identity: You are an AI agent powered by DSH Desktop Community.
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+- id: ui-brand-official
+  disabled: true
+
+# The upstream badge skill carries official whale artwork. Keep the source
+# package available to upstream Web assemblies, but never mount it in Desktop.
+- id: skill-badge
+  disabled: true
+
+- insert:
+    - id: ui-brand-community
+      name: '@deepseek-ai/dsh-client-ui-brand-community'
+
+# ── native capability: Electron directory dialog over the OS chooser ───────
+
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: directory-picker-electron
+      name: '@deepseek-ai/dsh-host-directory-picker-electron'
+
+# ── desktop files: Better Sidebar plus workspace-confined document previews ─
+
+- insert:
+    - id: desktop-better-sidebar
+      name: 'dsh-better-sidebar'
+      # Do not read another row's computed `disabled`: the published bundle's
+      # own duplicate guard reads this row and the two expressions would recurse.
+      # Any existing row wins, including an explicitly disabled user row.
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-better-sidebar' && e.options.id !== 'desktop-better-sidebar')"
+    - id: document-viewer
+      name: '@deepseek-ai/dsh-document-viewer'

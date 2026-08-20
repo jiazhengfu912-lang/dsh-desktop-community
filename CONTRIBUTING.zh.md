@@ -1,23 +1,58 @@
-# 贡献
+# 参与贡献
 
 [English](CONTRIBUTING.md) | 中文
 
-感谢你愿意为 DeepSeek Harness 作出贡献！
+DSH Desktop Community 接受针对 Windows 桌面发行版及其共享 DSH 依赖的聚焦贡献。本仓库是独立社区仓库；面向未修改 harness 核心的变更可能更适合提交到[上游仓库](https://github.com/deepseek-ai/deepseek-harness)。
 
-我们深信开源社区的力量，这份信念从项目最初就塑造着 DeepSeek Harness。
+## 开始之前
 
-DeepSeek Harness 仍处于早期阶段，并在积极开发中。很抱歉，我们目前无法接受外部 PR（Pull Request）。不过，贡献代码远非帮助本仓库建设的唯一途径。你还可以通过许多其他方式参与进来：
+- 在 [Issues](https://github.com/jiazhengfu912-lang/dsh-desktop-community/issues) 和 [Discussions](https://github.com/jiazhengfu912-lang/dsh-desktop-community/discussions) 中搜索现有工作。
+- 大型用户可见、架构、持久化、打包或发行流程变更应先创建 issue。
+- 禁止包含 API 密钥、凭据、`.dsh` 内容、真实会话日志、个人路径或含有私有工作区的截图。
+- 编辑前阅读 [AGENTS.md](AGENTS.md)、[开发指南](docs/development.md)及适用的子树说明。
 
-- 在 GitHub Discussions 中发现并报告问题或 bug：
-  - 为你希望引起团队关注的讨论投票。我们的团队规模很小，可能无法回复每个帖子，但我们会持续关注，并在分配资源时将这些讨论纳入考虑。
-- 为生态系统作出贡献：
-  - 创建令你感兴趣的插件，并分享给其他人：
-    - 为你的 GitHub 项目添加 `dsh-plugin` 话题，让其他人更容易找到你的插件。
-  - 撰写有关 DeepSeek Harness 的博客文章和操作指南。
-  - 回答问题并帮助其他社区成员。
+## 开发环境
 
-DeepSeek Harness 的设计支持深度定制。我们并不认为官方仓库中的包天然就比社区开发的包更重要。你可以将本仓库看作一种理念、一份官方示例以及一处灵感来源，而不是我们要求社区遵循的方向。
+使用 Node.js `^22.19.0` 或 `>=24.0.0` 以及 pnpm `11.7.0`：
 
-我们已经看到社区中涌现出令人期待的项目，也希望生态系统继续沿着自己的方向发展。
+```powershell
+git clone https://github.com/jiazhengfu912-lang/dsh-desktop-community.git
+Set-Location dsh-desktop-community
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm run build
+```
 
-探索未至之境。
+本仓库是 monorepo。桌面专属工作保留在 `apps/desktop`，仅在桌面行为确有需要时修改共享包。不要提交 `node_modules`、`lib`、`dist` 或 `release` 等依赖或输出目录。
+
+本社区仓库仅允许 `.github/workflows/desktop-ci.yml`（pull request 与 `master` 的 Windows 桌面检查）和 `.github/workflows/desktop-release.yml`（`desktop-v*` 标签）自动运行。其他继承自上游的工作流必须显式执行 `workflow_dispatch`；本 fork 不假定拥有官方企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
+
+## Pull requests
+
+- 创建聚焦分支，不要把无关本地改动放入 commit。
+- 添加或更新通过真实入口验证变更行为的测试。
+- 随代码更新用户文档和包文档。每份配对文档都必须具有匹配的英文、中文和 `.i18n.yaml` 文件。
+- 非平凡的行为、架构、持久化、测试策略或发行流程决策必须新增或更新 Agent Note。
+- 说明改动内容、实际运行的检查以及仍未验证的验收层级。
+
+生成的安装程序是发行产物，不属于 PR 文件。公开截图必须使用临时 `DSH_HOME`、虚构工作区名称，且不得包含凭据或个人路径。
+
+## 检查
+
+运行与改动范围相称的检查。桌面变更通常需要：
+
+```powershell
+pnpm run build
+pnpm --filter @deepseek-ai/dsh-desktop typecheck
+pnpm --filter @deepseek-ai/dsh-desktop test
+pnpm --filter @deepseek-ai/dsh-desktop package
+pnpm run doc-sync
+pnpm run lint
+git diff --check
+```
+
+不能仅凭源码构建声称安装程序、插件市场或数据复用验收通过。应分别报告源码检查、打包冒烟测试、安装程序行为和可见 GUI 行为。
+
+## 社区行为
+
+报告应保持可复现和技术性。不要发布他人的凭据、私有数据或漏洞利用细节。漏洞使用[安全政策](SECURITY.md)中的流程，使用问题参见[支持](SUPPORT.md)。

@@ -12,6 +12,7 @@ export type TestSqlName =
   | 'create-unrelated-table'
   | 'delete-persistence-state'
   | 'delete-session-events'
+  | 'drop-writer-leases'
   | 'empty-store-id'
   | 'insert-corrupt-event'
   | 'measure-write-traffic'

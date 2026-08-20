@@ -3,8 +3,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject } from '../src/client/index.ts'
-import { OfficialBrandMark, OfficialBrandName } from '../src/client/Brand.tsx'
+import {
+  apply, BrandWordmark, FishLogo, inject, OfficialBrandMark, OfficialBrandName,
+} from '../src/client/index.ts'
 
 afterEach(() => {
   cleanup()
@@ -75,5 +76,22 @@ describe('official browser-brand plugin', () => {
     expect(mark.container.querySelector('svg')?.getAttribute('class')).toBe('hero-mark')
     mark.rerender(<OfficialBrandMark size={24} />)
     expect(mark.container.querySelector('svg')?.getAttribute('width')).toBe('24')
+  })
+
+  it('owns the complete official artwork without generic primitive exports', () => {
+    const mark = render(<FishLogo />)
+    const markSvg = mark.container.querySelector('svg')!
+    expect(markSvg.getAttribute('viewBox')).toBe('0 0 23.16 17.04')
+    expect(mark.container.querySelectorAll('path')).toHaveLength(1)
+    expect(mark.container.innerHTML).toContain('currentColor')
+    mark.unmount()
+
+    const wordmark = render(<BrandWordmark />)
+    const wordmarkSvg = wordmark.container.querySelector('svg')!
+    expect(wordmarkSvg.getAttribute('width')).toBe('182')
+    expect(wordmarkSvg.getAttribute('viewBox')).toBe('0 0 182 24')
+    wordmark.rerender(<BrandWordmark includeMark={false} />)
+    expect(wordmarkSvg.getAttribute('width')).toBe('156')
+    expect(wordmarkSvg.getAttribute('viewBox')).toBe('26 0 156 24')
   })
 })

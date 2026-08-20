@@ -8,7 +8,8 @@
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `includeHarnessIdentity` | `true` | 是否包含顺序为 −100 的固定开场白 `You are an AI agent powered by DeepSeek Harness.`。仅当兼容性部署拥有完整系统提示词时设为 false。 |
+| `includeHarnessIdentity` | `true` | 是否包含顺序为 −100 的部署身份。仅当兼容性部署拥有完整系统提示词时设为 false。 |
+| `identity` | `You are an AI agent powered by DeepSeek Harness.` | 启用 `includeHarnessIdentity` 时发送给模型的部署身份。产品组合可以替换该文本，而不改变共享默认值。 |
 | `includeRuntimeContext` | `true` | 是否在组装中包含有序动态上下文。设为 false 时不会求值上下文提供方，并会在 waterfall 后丢弃 `system-prompt/assemble` 监听器添加的上下文；其他服务及其强制机制仍然生效。 |
 | `persona` | `''` | 全局部署 persona 默认值：唯一由配置提供的提示词片段，渲染为顺序为 0 的 `deployment:persona` 段，除非 agent 作用域的贡献将其遮蔽。它是模板，完整的 `{{…}}` 组会严格按已注册变量解释（随附循环注册 `{{model}}`/`{{cwd}}`），目前没有表达字面量花括号的转义语法。为空 ⇒ 渲染时删除该段。 |
 | `toolOrder` | 无 | 显式指定面向模型的工具顺序。该列表由 `ToolSchema.name` 组成，并且必须恰好包含一个 `'<unlisted-tools>'` 其余项标记（`TOOL_ORDER_REST`）：已列工具按列表位置排列，未列工具则按名称字典序插入该标记所在的位置。缺席 ⇒ 直接按名称字典序排列。该顺序会在 `system-prompt/assemble` waterfall（瀑布式事件）之前应用于已收集的工具。与段的 `order` 排序一样，它会规范化注册表贡献的内容；注册顺序只是插件加载时序的产物。修改列表的 waterfall 监听器对其输出的确定性负责。配置错误会明确失败：列表没有恰好一个其余项或存在重复项，会在加载时抛出；已列名称没有对应已注册工具，会使每次 `assemble()` 被拒绝；工具提供方返回保留的其余项名称也会被拒绝。在随附循环下，轮次会在任何模型请求前失败。为何采用中心列表而非每插件权重，见[显式面向模型工具顺序](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.md)。 |
@@ -54,7 +55,7 @@
 
 #### 模型看到的内容
 
-默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。`includeHarnessIdentity: false` 仅省略这个固定开场白。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete；此时，该确切段会成为完整的系统提示词，而 waterfall 得到的上下文、工具和变量保持不变。有序动态上下文与系统提示词段分离，只在存在时才会成为带来源的 user 角色快照。`includeRuntimeContext: false` 或带作用域的抑制器会移除所有这类上下文，包括监听器添加的内容，但不会禁用拥有底层策略或状态的服务。
+默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。产品组合可以替换 `identity`；`includeHarnessIdentity: false` 会省略该身份。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete；此时，该确切段会成为完整的系统提示词，而 waterfall 得到的上下文、工具和变量保持不变。有序动态上下文与系统提示词段分离，只在存在时才会成为带来源的 user 角色快照。`includeRuntimeContext: false` 或带作用域的抑制器会移除所有这类上下文，包括监听器添加的内容，但不会禁用拥有底层策略或状态的服务。
 
 ##### harness 身份
 

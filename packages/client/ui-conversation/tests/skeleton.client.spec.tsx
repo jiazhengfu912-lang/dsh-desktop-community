@@ -272,7 +272,9 @@ describe('Hero chrome', () => {
     }
     expect(brandMarkOwner.size).toBe(34)
     expect(brandMarkOwner.className).toBeTypeOf('string')
-    expect(renderSlot.mock.calls[0]?.[2]?.fallback).toBeTruthy()
+    expect(renderSlot.mock.calls[0]?.[2]?.fallback).toBeNull()
+    expect(view.container.querySelector('[class*="brandHitbox"]')).not.toBeNull()
+    expect(view.container.querySelector('[class*="brandHitbox"] svg')).toBeNull()
   })
 })
 

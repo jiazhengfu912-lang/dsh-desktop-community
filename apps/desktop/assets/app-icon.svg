@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">DSH Desktop Community</title>
+  <desc id="desc">A geometric terminal prompt connected to circuit nodes.</desc>
+  <defs>
+    <linearGradient id="surface" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17233D"/>
+      <stop offset="1" stop-color="#09111F"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="58" y1="72" x2="206" y2="190" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#70F0D2"/>
+      <stop offset="1" stop-color="#49A8FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="url(#surface)"/>
+  <rect x="21" y="21" width="214" height="214" rx="46" fill="none" stroke="#FFFFFF" stroke-opacity=".09" stroke-width="2"/>
+  <path d="M64 78 105 119 64 160" fill="none" stroke="url(#signal)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M118 164h42c13 0 24-11 24-24v-17" fill="none" stroke="url(#signal)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M184 123V92m0 0h23m-23 0V65" fill="none" stroke="#70F0D2" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="207" cy="92" r="10" fill="#49A8FF"/>
+  <circle cx="184" cy="65" r="10" fill="#70F0D2"/>
+  <circle cx="184" cy="123" r="9" fill="#E8FFFA"/>
+</svg>

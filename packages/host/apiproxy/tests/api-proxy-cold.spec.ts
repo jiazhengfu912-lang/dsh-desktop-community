@@ -282,8 +282,14 @@ describe('cold history recovery view', () => {
       readStoredRevision: id => Promise.resolve(
         id === sessionId ? SessionPersistenceRevision('history-recovery-test:1') : undefined,
       ),
-      appendBatch: () => Promise.resolve(),
-      commitRepair: () => Promise.resolve(),
+      appendBatch: () => Promise.resolve({
+        revision: SessionPersistenceRevision('history-recovery-test:2'),
+      }),
+      commitRepair: () => Promise.resolve({
+        revision: SessionPersistenceRevision('history-recovery-test:2'),
+      }),
+      acquireWriter: () => Promise.resolve({ token: 'history-recovery-test-writer' }),
+      releaseWriter: () => Promise.resolve(),
       list: () => Promise.resolve([structuredClone(meta)]),
     }
     const coordinator = new PersistenceCoordinator(ctx, backend)

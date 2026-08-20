@@ -1,0 +1,7 @@
+# Browser acceptance mounts the desktop file-manager integration over the
+# shipped Web composition. The shared Web profile remains unchanged.
+- insert:
+    - id: better-sidebar
+      name: 'dsh-better-sidebar'
+    - id: document-viewer
+      name: '@deepseek-ai/dsh-document-viewer'

@@ -8,8 +8,9 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, realpath, link, rename, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
@@ -17,9 +18,10 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
+  SessionRevisionChangedError, SessionWriterSupersededError,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
-  type StoredPrefix,
+  type SessionWriterLease, type StoredPrefix, type WriteCommit, type WriteExpectation,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
@@ -92,18 +94,14 @@ interface FileRevisionIdentity {
   readonly dev: bigint
   readonly ino: bigint
   readonly size: bigint
-  readonly mtimeNs: bigint
-  readonly ctimeNs: bigint
 }
 
-/** Build the source-qualified revision shared by full and lightweight reads. */
+/** Build a stable append-only identity; Windows updates file timestamps lazily. */
 function fileRevision(identity: FileRevisionIdentity): PersistenceRevision {
   return SessionPersistenceRevision([
     identity.dev,
     identity.ino,
     identity.size,
-    identity.mtimeNs,
-    identity.ctimeNs,
   ].join(':'))
 }
 
@@ -418,14 +416,96 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
-  /** Durably append a batch, lazily materializing the file when not yet present. */
-  async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
-    await this.ensureRootEncoding()
-    if (isMaterialized) {
-      await this.appendLines(meta, events)
-    } else {
-      await this.materialize(meta, events)
+  /** Return the writer-lease sidecar path for one session. */
+  private leasePath(meta: SessionHeader): string {
+    return join(sessionDir(this.root, meta.cwd, meta.id), 'session.writer')
+  }
+
+  /** Serialize lease takeover and log mutation across processes. */
+  private async withWriterLock<T>(meta: SessionHeader, operation: () => Promise<T>): Promise<T> {
+    const path = this.leasePath(meta)
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    return withFileLock(path, operation)
+  }
+
+  /** Read a current lease token; malformed content behaves as no valid owner. */
+  private async readLeaseToken(meta: SessionHeader): Promise<string | undefined> {
+    let content: string
+    try {
+      content = await readFile(this.leasePath(meta), 'utf8')
+    } catch (error: unknown) {
+      if (isENOENT(error)) return undefined
+      throw error
     }
+    try {
+      const parsed = JSON.parse(content) as { token?: unknown }
+      return typeof parsed.token === 'string' ? parsed.token : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Replace the lease sidecar while the cross-process writer lock is held. */
+  private async writeLease(meta: SessionHeader, token: string): Promise<void> {
+    const path = this.leasePath(meta)
+    const tmp = await this.writeSyncedTempFile(
+      path,
+      JSON.stringify({ token, pid: process.pid }) + '\n',
+    )
+    try {
+      await rename(tmp, path)
+      if (process.platform !== 'win32') await this.syncDirPosix(dirname(path))
+    } catch (error: unknown) {
+      await rm(tmp, { force: true })
+      throw error
+    }
+  }
+
+  /** Reject a write after another host installs a newer lease token. */
+  private async assertWriterLease(meta: SessionHeader, lease: SessionWriterLease): Promise<void> {
+    if (await this.readLeaseToken(meta) !== lease.token) {
+      throw new SessionWriterSupersededError(meta.id)
+    }
+  }
+
+  /** Reject a write whose append-only artifact identity changed after observation. */
+  private async assertRevisionCurrent(meta: SessionHeader, expected: WriteExpectation): Promise<void> {
+    if (expected.revision === undefined) return
+    const path = logPath(this.root, meta.cwd, meta.id, this.compression)
+    let current: PersistenceRevision | undefined
+    try {
+      current = fileRevision(await stat(path, { bigint: true }))
+    } catch (error: unknown) {
+      if (!isENOENT(error)) throw error
+    }
+    if (current !== expected.revision) {
+      throw new SessionRevisionChangedError(meta.id)
+    }
+  }
+
+  /** Durably append a batch, lazily materializing the file when not yet present. */
+  async appendBatch(
+    meta: SessionHeader,
+    events: readonly SessionEvent[],
+    isMaterialized: boolean,
+    expected: WriteExpectation,
+  ): Promise<WriteCommit> {
+    await this.ensureRootEncoding()
+    return this.withWriterLock(meta, async () => {
+      await this.assertWriterLease(meta, expected.lease)
+      if (events[0]?.seq !== expected.nextSeq) throw new SessionRevisionChangedError(meta.id)
+      if (isMaterialized) {
+        await this.assertRevisionCurrent(meta, expected)
+        await this.appendLines(meta, events)
+      } else {
+        if (expected.revision !== undefined || expected.nextSeq !== 0) {
+          throw new SessionRevisionChangedError(meta.id)
+        }
+        await this.materialize(meta, events)
+      }
+      const identity = await stat(logPath(this.root, meta.cwd, meta.id, this.compression), { bigint: true })
+      return { revision: fileRevision(identity) }
+    })
   }
 
   /**
@@ -437,10 +517,44 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     meta: SessionHeader,
     tornMarker: JsonlTornMarker | undefined,
     closers: readonly SessionEvent[],
-  ): Promise<void> {
-    if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
-    const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
-    if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+    expected: WriteExpectation,
+  ): Promise<WriteCommit> {
+    return this.withWriterLock(meta, async () => {
+      await this.assertWriterLease(meta, expected.lease)
+      await this.assertRevisionCurrent(meta, expected)
+      const recoveredEvents = tornMarker?.recoveredEvents ?? []
+      const recoveredNextSeq = recoveredEvents.at(-1)?.seq === undefined
+        ? expected.nextSeq
+        : (recoveredEvents.at(-1) as SessionEvent).seq + 1
+      if (recoveredNextSeq !== expected.nextSeq || (closers[0]?.seq ?? expected.nextSeq) !== expected.nextSeq) {
+        throw new SessionRevisionChangedError(meta.id)
+      }
+      if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
+      const repairedEvents = [...recoveredEvents, ...closers]
+      if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+      const identity = await stat(logPath(this.root, meta.cwd, meta.id, this.compression), { bigint: true })
+      return { revision: fileRevision(identity) }
+    })
+  }
+
+  /** Install a fresh forced-takeover writer lease under the mutation lock. */
+  async acquireWriter(meta: SessionHeader, signal?: AbortSignal): Promise<SessionWriterLease | undefined> {
+    signal?.throwIfAborted()
+    const token = `${Date.now()}:${randomBytes(16).toString('hex')}`
+    await this.withWriterLock(meta, async () => {
+      signal?.throwIfAborted()
+      await this.writeLease(meta, token)
+    })
+    return { token }
+  }
+
+  /** Remove this exact lease without racing a newer owner's takeover. */
+  async releaseWriter(meta: SessionHeader, lease: SessionWriterLease): Promise<void> {
+    await this.withWriterLock(meta, async () => {
+      if (await this.readLeaseToken(meta) !== lease.token) return
+      await rm(this.leasePath(meta), { force: true })
+      if (process.platform !== 'win32') await this.syncDirPosix(dirname(this.leasePath(meta)))
+    })
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */

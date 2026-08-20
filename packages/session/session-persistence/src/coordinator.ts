@@ -64,6 +64,28 @@ export class SessionFormatUnsupportedError extends Error {
   }
 }
 
+/** A late writer no longer owns the persisted session's cross-process lease. */
+export class SessionWriterSupersededError extends Error {
+  /**
+   * @param id - persisted session whose writer ownership changed.
+   */
+  constructor(id: SessionId) {
+    super(`session "${id}": writer ownership was superseded; this process no longer holds the writer lease`)
+    this.name = 'SessionWriterSupersededError'
+  }
+}
+
+/** A persisted session changed after the writer observed its durable revision. */
+export class SessionRevisionChangedError extends Error {
+  /**
+   * @param id - persisted session whose durable revision diverged.
+   */
+  constructor(id: SessionId) {
+    super(`session "${id}": durable revision changed concurrently; refusing to write over a newer log`)
+    this.name = 'SessionRevisionChangedError'
+  }
+}
+
 /**
  * Direction-aware refusal text for a stored session whose format version this
  * build does not read. Shared by the coordinator's load-time check and by
@@ -112,6 +134,28 @@ export interface StoredPrefix<TornMarker = unknown> {
 export interface StoredSuffix {
   meta: SessionHeader
   events: SessionEvent[]
+}
+
+/** A non-reusable cross-process writer-ownership token for one session. */
+export interface SessionWriterLease {
+  /** Opaque backend-minted token compared by string identity. */
+  readonly token: string
+}
+
+/** Durable preconditions rechecked by a backend at the write commit point. */
+export interface WriteExpectation {
+  /** Current cross-process writer lease. */
+  readonly lease: SessionWriterLease
+  /** Exact durable revision observed before the write, absent before materialization. */
+  readonly revision: SessionPersistenceRevision | undefined
+  /** First sequence number the durable append position must accept. */
+  readonly nextSeq: number
+}
+
+/** Durable identity returned by a committed append or repair. */
+export interface WriteCommit {
+  /** Revision observed inside the completed commit operation. */
+  readonly revision: SessionPersistenceRevision
 }
 
 /**
@@ -181,7 +225,12 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * commit ATOMICALLY (a crash between them must not leave a materialized-but-
    * empty session). Returns once the batch is durable.
    */
-  appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void>
+  appendBatch(
+    meta: SessionHeader,
+    events: readonly SessionEvent[],
+    isMaterialized: boolean,
+    expected: WriteExpectation,
+  ): Promise<WriteCommit>
 
   /**
    * Make a crash repair durable: truncate the torn tail (iff
@@ -190,7 +239,27 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * Used by load (truncate + synthetic closers) and by live-adoption (truncate
    * only, `closers = []`).
    */
-  commitRepair(meta: SessionHeader, tornMarker: TornMarker | undefined, closers: readonly SessionEvent[]): Promise<void>
+  commitRepair(
+    meta: SessionHeader,
+    tornMarker: TornMarker | undefined,
+    closers: readonly SessionEvent[],
+    expected: WriteExpectation,
+  ): Promise<WriteCommit>
+
+  /**
+   * Install a fresh cross-process writer lease, superseding any prior token.
+   * @param meta - session header naming the ownership scope.
+   * @param signal - optional acquisition cancellation.
+   * @returns the fresh non-reusable token, or undefined when ownership cannot be installed.
+   */
+  acquireWriter(meta: SessionHeader, signal?: AbortSignal): Promise<SessionWriterLease | undefined>
+
+  /**
+   * Release the lease only when its exact token remains current.
+   * @param meta - session header naming the ownership scope.
+   * @param lease - exact token previously returned by {@link acquireWriter}.
+   */
+  releaseWriter(meta: SessionHeader, lease: SessionWriterLease): Promise<void>
 
   /**
    * List all stored (materialized) sessions' metadata.
@@ -232,6 +301,8 @@ interface SessionState {
    * same id (a collision) instead of silently no-opping.
    */
   owner?: Session
+  /** Durable revision last observed after a committed write or load. */
+  revision?: SessionPersistenceRevision
 }
 
 /** One live session's initialization and bounded write-behind controller. */
@@ -599,6 +670,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
+  /** Cross-process writer leases held by this coordinator. */
+  private leases = new Map<SessionId, { lease: SessionWriterLease; meta: SessionHeader }>()
   /** Resolved fixed write-batching window shared by per-session controllers. */
   private readonly writeBatchMaxDelayMs: number
 
@@ -701,11 +774,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }
 
-    await this.backend.appendBatch(state.meta, events, state.materialized)
+    const expected = await this.ensureWriteLease(state.meta, state.revision, state.cursor)
+    const commit = await this.backend.appendBatch(state.meta, events, state.materialized, expected)
     // The durable write is the transaction: mark materialized + advance the
     // cursor as soon as it commits (uniform across backends).
     state.materialized = true
     state.cursor += events.length
+    state.revision = commit.revision
     this.preparations.invalidate(id)
   }
 
@@ -942,7 +1017,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     if (!await this.isPreparedSourceCurrent(source)) return undefined
     if (source.tornMarker !== undefined || source.closers.length > 0) {
-      await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
+      const expected = await this.ensureWriteLease(
+        source.inspection.meta,
+        source.revision,
+        cursor - source.closers.length,
+      )
+      await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers, expected)
       // The repair changed the durable revision. Reload the exact committed
       // graph instead of associating the old in-memory view with a newer revision.
       return undefined
@@ -955,6 +1035,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     state.meta = source.inspection.meta
     state.cursor = cursor
     state.materialized = true
+    state.revision = source.revision
     this.states.set(id, state)
     return {
       source,
@@ -1081,6 +1162,32 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
   }
 
+  /** Return one session's current durable write preconditions, acquiring ownership lazily. */
+  private async ensureWriteLease(
+    meta: SessionHeader,
+    revision: SessionPersistenceRevision | undefined,
+    nextSeq: number,
+  ): Promise<WriteExpectation> {
+    let entry = this.leases.get(meta.id)
+    if (entry === undefined) {
+      const lease = await this.backend.acquireWriter(meta)
+      if (lease === undefined) {
+        throw new Error(`cannot write session "${meta.id}": another live writer owns it`)
+      }
+      entry = { lease, meta }
+      this.leases.set(meta.id, entry)
+    }
+    return { lease: entry.lease, revision, nextSeq }
+  }
+
+  /** Release one session lease after all serialized writes for that id settle. */
+  private async releaseLease(id: SessionId): Promise<void> {
+    const entry = this.leases.get(id)
+    if (entry === undefined) return
+    await this.backend.releaseWriter(entry.meta, entry.lease)
+    if (this.leases.get(id) === entry) this.leases.delete(id)
+  }
+
   // --- write path (session/event → flush drain) ---
 
   private installWritePath(): void {
@@ -1094,8 +1201,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       try {
         const errors = await settledErrors([...this.live.keys()].map(session => this.flush(session)))
         while (this.chains.size > 0) await Promise.allSettled([...this.chains.values()])
-        if (errors.length > 0) {
-          throw new AggregateError(errors, `${this.backend.name} dispose failed`)
+        const leaseErrors = await settledErrors([...this.leases.keys()].map(id => this.releaseLease(id)))
+        if (errors.length > 0 || leaseErrors.length > 0) {
+          throw new AggregateError([...errors, ...leaseErrors], `${this.backend.name} dispose failed`)
         }
       } catch (error: unknown) {
         disposeError = error
@@ -1154,9 +1262,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async retireCore(session: Session): Promise<void> {
     await this.flush(session)
     const id = session.header.id
-    await this.serialize(id, () => {
+    await this.serialize(id, async () => {
       this.live.delete(session)
       if (this.states.get(id)?.owner === session) this.states.delete(id)
+      await this.releaseLease(id)
     })
   }
 
@@ -1312,12 +1421,18 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }
     // Truncate-only repair (no closers): the open turn is NOT closed here.
-    if (tornMarker !== undefined) await this.backend.commitRepair(meta, tornMarker, [])
+    let revision = stored.revision
+    if (tornMarker !== undefined) {
+      const expected = await this.ensureWriteLease(meta, revision, storedEvents.length)
+      const commit = await this.backend.commitRepair(meta, tornMarker, [], expected)
+      revision = commit.revision
+    }
     this.states.set(session.header.id, {
       meta: { ...meta },
       cursor: storedEvents.length,
       materialized: true,
       owner: session,
+      revision,
     })
     const suffix = seed.slice(storedEvents.length)
     if (suffix.length > 0) await this.appendCore(session.header.id, suffix)

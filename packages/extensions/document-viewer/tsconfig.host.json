@@ -1,0 +1,22 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "files": [
+    "src/types.ts",
+    "src/filesystem-error.ts",
+    "src/path-containment.ts",
+    "src/index.ts",
+    "src/invariant.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../workspace/workspace" },
+    { "path": "../../host/webserver" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

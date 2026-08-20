@@ -4,6 +4,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { OfficialBrandMark, OfficialBrandName } from './Brand.tsx'
 
+export { OfficialBrandMark, OfficialBrandName } from './Brand.tsx'
+export { BrandWordmark } from './BrandWordmark.tsx'
+export type { BrandWordmarkProps } from './BrandWordmark.tsx'
+export { FishLogo } from './FishLogo.tsx'
+export type { FishLogoProps } from './FishLogo.tsx'
+
 /** Required service: the UI slot registry. */
 export const inject = ['slots']
 

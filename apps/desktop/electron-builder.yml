@@ -1,0 +1,61 @@
+appId: io.github.jiazhengfu912.dshdesktop
+productName: DSH Desktop Community
+copyright: Copyright © 2026 DSH Desktop Community Contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# No asar: the host boot creates profile junctions into node_modules, and a
+# junction cannot target a path inside app.asar. Keeping the app unpacked makes
+# those junctions point at real files.
+asar: false
+
+# The host's web profile does not mount node-pty (terminal is TUI-only), and
+# the Loader's Node-internal hook is replaced by a createRequire resolver at
+# boot — so no native module needs an ABI rebuild. Skipping the rebuild avoids
+# node-gyp/Python distutils failures on Python 3.12+.
+npmRebuild: false
+afterPack: build/after-pack.cjs
+
+files:
+  - dist/**
+  - config/**
+  - desktop.patch.yml
+  - assets/**
+  - build/icon.ico
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/@deepseek-ai/dsh-client-ui-brand-official{,/**}"
+  - "!**/node_modules/@deepseek-ai/dsh-skill-badge{,/**}"
+  - "!**/node_modules/@deepseek-ai/dsh-web-frontend{,/**}"
+
+extraResources:
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+  - from: ../../COMMUNITY_NOTICE.md
+    to: COMMUNITY_NOTICE.md
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  signAndEditExecutable: true
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  shortcutName: DSH Desktop Community
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  artifactName: DSH-Desktop-Community-Setup-x64.${ext}
+  uninstallDisplayName: DSH Desktop Community

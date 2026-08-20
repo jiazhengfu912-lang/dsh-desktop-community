@@ -161,6 +161,22 @@ describe('HTML bootstrap facade', () => {
 })
 
 describe('client bundle activation', () => {
+  it('composes the graph without a web server for the desktop carrier', () => {
+    const packageName = '@fixture/desktop-client'
+    writeBuiltPackage(packageName, {})
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(root!).href + '/'
+    ctx.provide('loader', {
+      *entries() {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      },
+    })
+
+    const service = new ClientModuleRegistry(ctx)
+
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+  })
+
   it('allows sibling dsh roles', () => {
     const currentName = '@fixture/current-client-field'
     const clientPath = writePackage(currentName, {

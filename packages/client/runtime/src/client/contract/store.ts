@@ -117,20 +117,34 @@ export function createSnapshotStore<T>(
 }
 
 /**
- * Whole-value JSON persistence to localStorage. Hand-rolled instead of the
+ * Whole-value JSON persistence to the renderer's storage backend. Hand-rolled instead of the
  * zustand persist middleware: its write path spreads state into an object
  * (`partialize({ ...get() })`), exploding primitive state (a persisted string
  * draft becomes {0:'h',1:'e',...}) — not fixable via merge/deserialize options
  * because the corruption happens before serialization. Storage failures
- * (quota, private mode) only disable persistence, never break the store.
+ * (quota, private mode, IPC failure) only disable persistence, never break the store.
  */
+interface StorageBackend {
+  getItem(name: string): string | null
+  setItem(name: string, value: string): void
+  removeItem(name: string): void
+}
+
+/** Resolve Electron's IPC-backed store before falling back to browser localStorage. */
+function resolveStorage(): StorageBackend | undefined {
+  const desktop = (globalThis as { __DSH_STORAGE__?: StorageBackend }).__DSH_STORAGE__
+  if (desktop !== undefined) return desktop
+  if (typeof localStorage === 'undefined') return undefined
+  return localStorage
+}
+
 function attachPersistence<T>(api: StoreApi<T>, name: string): void {
-  // Non-browser runs (node e2e booting the client tree) have no localStorage:
-  // persistence silently disables — same contract as a storage failure, minus
-  // the per-store console noise a ReferenceError would produce.
-  if (typeof localStorage === 'undefined') return
+  // Non-renderer runs have no backend; persistence silently disables with the
+  // same non-fatal behavior as a storage failure.
+  const storage = resolveStorage()
+  if (storage === undefined) return
   try {
-    const raw = localStorage.getItem(name)
+    const raw = storage.getItem(name)
     if (raw !== null) {
       api.setState(devFreeze(JSON.parse(raw) as T), true)
     }
@@ -139,7 +153,7 @@ function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   }
   api.subscribe((state) => {
     try {
-      localStorage.setItem(name, JSON.stringify(state))
+      storage.setItem(name, JSON.stringify(state))
     } catch (error) {
       console.error(`snapshot store '${name}' persistence failed:`, error)
     }
@@ -226,9 +240,11 @@ export function defineStore<T, A extends ActionsDecl<T>>(
         subscribe: fn => store.subscribe(fn),
         store,
         clearPersisted: () => {
-          if (persistKey === undefined || typeof localStorage === 'undefined') return
+          if (persistKey === undefined) return
+          const storage = resolveStorage()
+          if (storage === undefined) return
           try {
-            localStorage.removeItem(persistKey)
+            storage.removeItem(persistKey)
           } catch {
             // Storage failures (private mode, quota teardown races) only skip
             // cleanup — the same non-fatal contract as attachPersistence.

@@ -48,13 +48,18 @@ export {
   PersistenceCoordinator,
   SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
+  SessionRevisionChangedError,
+  SessionWriterSupersededError,
   sessionFormatVersionRefusal,
 } from './coordinator.ts'
 export type {
   PersistenceBackend,
   PersistenceCoordinatorOptions,
+  SessionWriterLease,
   StoredPrefix,
   StoredSuffix,
+  WriteCommit,
+  WriteExpectation,
 } from './coordinator.ts'
 
 declare module '@deepseek-ai/cordis' {

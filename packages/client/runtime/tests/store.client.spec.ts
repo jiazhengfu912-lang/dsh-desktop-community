@@ -122,6 +122,27 @@ describe('createSnapshotStore', () => {
     const revived = createSnapshotStore(init(), { persist: { name: 'spec-store' } })
     expect(revived.getSnapshot().a.n).toBe(42)
   })
+
+  it('prefers the desktop IPC storage backend over browser localStorage', () => {
+    const desktop = new Map<string, string>()
+    const browserSet = vi.fn()
+    vi.stubGlobal('__DSH_STORAGE__', {
+      getItem: (key: string) => desktop.get(key) ?? null,
+      setItem: (key: string, value: string) => { desktop.set(key, value) },
+      removeItem: (key: string) => { desktop.delete(key) },
+    })
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: browserSet,
+      removeItem: vi.fn(),
+    })
+
+    const store = createSnapshotStore(init(), { persist: { name: 'desktop-store' } })
+    store.update((draft) => { draft.a.n = 77 })
+
+    expect(JSON.parse(desktop.get('desktop-store')!)).toEqual({ a: { n: 77 }, b: { list: ['x'] } })
+    expect(browserSet).not.toHaveBeenCalled()
+  })
 })
 
 describe('defineStore', () => {
@@ -213,6 +234,31 @@ describe('defineStore', () => {
       actions: { inc: (d) => { d.n += 1 } },
     }).create()
     expect(() => { inst.clearPersisted() }).not.toThrow()
+  })
+
+  it('clears the desktop IPC storage key without touching browser localStorage', () => {
+    const removeDesktop = vi.fn()
+    const removeBrowser = vi.fn()
+    vi.stubGlobal('__DSH_STORAGE__', {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: removeDesktop,
+    })
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: removeBrowser,
+    })
+    const instance = defineStore({
+      init: () => ({ n: 0 }),
+      persist: 'desktop.clear',
+      actions: { inc: (draft) => { draft.n += 1 } },
+    }).create('session')
+
+    instance.clearPersisted()
+
+    expect(removeDesktop).toHaveBeenCalledWith('desktop.clear.session')
+    expect(removeBrowser).not.toHaveBeenCalled()
   })
 })
 

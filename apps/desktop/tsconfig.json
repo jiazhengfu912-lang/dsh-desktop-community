@@ -1,0 +1,32 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "lib/types",
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/renderer",
+    "src/shared"
+  ],
+  "exclude": [
+    "src/main",
+    "src/preload"
+  ],
+  "references": [
+    {
+      "path": "../../packages/client/web"
+    },
+    {
+      "path": "../../packages/client/modules"
+    }
+  ]
+}

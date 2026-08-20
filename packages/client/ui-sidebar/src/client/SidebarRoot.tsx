@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
+  IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
 import css from './SidebarRoot.module.css'
@@ -111,6 +111,15 @@ export function SidebarRoot({
     }
   }, [pointerInside])
 
+  const brandMark = renderSlot('sidebar.brand.mark', { size: 24 }, {
+    fallback: <IconNewChatOutline16 size={18} />,
+  })
+  const brandName = renderSlot('sidebar.brand.name', {}, {
+    fallback: <span className={css.fallbackActionName}>{t('session.new')}</span>,
+  })
+  const hasBrandMark = brandMark !== null && brandMark !== undefined
+  const hasBrandIdentity = hasBrandMark || (brandName !== null && brandName !== undefined)
+
   return (
     <div
       ref={column}
@@ -126,9 +135,9 @@ export function SidebarRoot({
       onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
-        {/* Expanded, the brand doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (
+        {/* An installed brand can double as a New Session shortcut. Without
+            one, the same control renders a neutral action glyph and label. */}
+        {wide && hasBrandIdentity && (
           <button
             type="button"
             className={clsx(css.brand, css.wide)}
@@ -136,26 +145,15 @@ export function SidebarRoot({
             onClick={() => { startSession() }}
           >
             <span className={css.brandIdentity} aria-hidden="true">
-              <span className={css.brandMark}>
-                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
-              </span>
-              <span className={css.brandName}>
-                {renderSlot('sidebar.brand.name', {}, {
-                  fallback: (
-                    <>
-                      <span className={css.fallbackBrandName}>DSH Local Build</span>
-                      {process.env.DSH_CLIENT_COMMIT_HASH
-                        ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
-                        : null}
-                    </>
-                  ),
-                })}
-              </span>
+              {hasBrandMark ? <span className={css.brandMark}>{brandMark}</span> : null}
+              {brandName !== null && brandName !== undefined
+                ? <span className={css.brandName}>{brandName}</span>
+                : null}
             </span>
           </button>
         )}
-        {/* Rail resting state is the whale mark; hovering swaps in the panel
-            icon (the expand affordance, figma sidebar-hover flow). */}
+        {/* The rail mark (including the generic New Session fallback) swaps
+            to the panel icon on hover. An empty renderer leaves that icon. */}
         <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
@@ -164,12 +162,15 @@ export function SidebarRoot({
             onClick={() => { toggleSidebar() }}
           >
             {!wide && (
-              <span className={css.railMark} aria-hidden="true">
-                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
-              </span>
+              hasBrandMark
+                ? <span className={css.railMark} aria-hidden="true">{brandMark}</span>
+                : null
             )}
             {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+            <IconPanelLeftOutline16
+              className={clsx(css.panelIcon, !hasBrandMark && css.panelIconOnly)}
+              size={wide ? 16 : 18}
+            />
           </button>
         </Tooltip>
       </div>

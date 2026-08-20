@@ -4,8 +4,8 @@
  * The shell renders the surrounding chrome (button, nav heading row) and
  * reads each entry's `label` option for aria text.
  */
-import { IconSettingsOutline14, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { PliersIcon } from './PliersIcon.tsx'
 import css from './chrome.module.css'
 
 /** Trigger content props: the sidebar column state + the standard locale seat. */
@@ -22,7 +22,7 @@ export type HeaderContentProps = PropsRuntime<'settings.header'> & PropsLocale<'
 export function TriggerContent({ wide, t }: TriggerContentProps) {
   return (
     <>
-      {wide ? <IconSettingsOutline16 size={16} /> : <IconSettingsOutline14 size={18} />}
+      {wide ? <PliersIcon size={16} /> : <PliersIcon size={18} />}
       {wide && <span className={css.triggerLabel}>{t('trigger')}</span>}
     </>
   )

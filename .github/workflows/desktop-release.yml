@@ -1,0 +1,171 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release-windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify release tag and master commit
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REPOSITORY -ne 'jiazhengfu912-lang/dsh-desktop-community') {
+            throw "release workflow cannot publish from $env:GITHUB_REPOSITORY"
+          }
+          $manifest = Get-Content -LiteralPath 'apps/desktop/package.json' -Raw | ConvertFrom-Json
+          $expected = "desktop-v$($manifest.version)"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "release tag '$env:GITHUB_REF_NAME' does not match '$expected'"
+          }
+
+          git fetch --force --no-tags origin 'refs/heads/master:refs/remotes/origin/master'
+          if ($LASTEXITCODE -ne 0) { throw 'failed to fetch current origin/master' }
+          $tagCommit = (git rev-parse --verify "$($env:GITHUB_REF_NAME)^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'failed to resolve the release tag commit' }
+          $masterCommit = (git rev-parse --verify 'origin/master^{commit}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'failed to resolve origin/master' }
+          if ($tagCommit -ne $masterCommit) {
+            throw "release tag commit '$tagCommit' does not equal current origin/master '$masterCommit'"
+          }
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace libraries
+        run: pnpm run build
+      - name: Type-check desktop
+        run: pnpm --filter @deepseek-ai/dsh-desktop run typecheck
+      - name: Test desktop
+        run: pnpm --filter @deepseek-ai/dsh-desktop run test
+      - name: Prepare Windows packaging tools
+        run: pnpm --filter @deepseek-ai/dsh-desktop run prepare:windows-builder-cache
+      - name: Package and run packaged smokes
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package
+      - name: Smoke-test installer lifecycle
+        shell: powershell
+        run: ./apps/desktop/build/smoke-installer.ps1
+      - name: Create checksums and build metadata
+        run: node apps/desktop/build/create-release-metadata.mjs
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            'apps/desktop/release/DSH-Desktop-Community-Setup-x64.exe'
+            'apps/desktop/release/SHA256SUMS.txt'
+            'apps/desktop/release/build-info.json'
+          )
+          $existingReleaseTags = @(gh api --paginate `
+            "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
+            --jq '.[].tag_name')
+          if ($LASTEXITCODE -ne 0) { throw 'failed to check for an existing GitHub Release' }
+          if ($existingReleaseTags -contains $env:GITHUB_REF_NAME) {
+            throw "GitHub Release '$env:GITHUB_REF_NAME' already exists"
+          }
+
+          git fetch --force --no-tags origin 'refs/heads/master:refs/remotes/origin/master'
+          if ($LASTEXITCODE -ne 0) { throw 'failed to refresh current origin/master before publishing' }
+          $tagCommit = (git rev-parse --verify "$($env:GITHUB_REF_NAME)^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'failed to resolve the release tag commit before publishing' }
+          $masterCommit = (git rev-parse --verify 'origin/master^{commit}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'failed to resolve origin/master before publishing' }
+          if ($tagCommit -ne $masterCommit) {
+            throw "release tag commit '$tagCommit' no longer equals current origin/master '$masterCommit'"
+          }
+
+          gh release create $env:GITHUB_REF_NAME @assets `
+            --repo $env:GITHUB_REPOSITORY `
+            --verify-tag `
+            --title "DSH Desktop Community $env:GITHUB_REF_NAME" `
+            --notes-file '.github/desktop-release-notes.md' `
+            --draft=false `
+            --prerelease=false `
+            --latest
+          if ($LASTEXITCODE -ne 0) { throw 'failed to publish GitHub Release' }
+
+          $release = gh release view $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --json assets,isDraft,isPrerelease,tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'failed to read the published GitHub Release' }
+          if ($release.isDraft -or $release.isPrerelease) {
+            throw 'published GitHub Release must be neither draft nor prerelease'
+          }
+          $expectedAssets = @(
+            'DSH-Desktop-Community-Setup-x64.exe'
+            'SHA256SUMS.txt'
+            'build-info.json'
+          )
+          $actualAssets = @($release.assets | ForEach-Object { $_.name })
+          foreach ($asset in $expectedAssets) {
+            if ($actualAssets -notcontains $asset) { throw "published GitHub Release is missing $asset" }
+          }
+          $latestTag = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" --jq '.tag_name'
+          if ($LASTEXITCODE -ne 0 -or $latestTag -ne $env:GITHUB_REF_NAME) {
+            throw "latest GitHub Release is '$latestTag', expected '$env:GITHUB_REF_NAME'"
+          }
+      - name: Verify fixed latest download
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $downloadRoot = Join-Path $env:RUNNER_TEMP ("dsh-latest-download-" + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $downloadRoot | Out-Null
+          $downloadedInstaller = Join-Path $downloadRoot 'DSH-Desktop-Community-Setup-x64.exe'
+          $downloadUrl = 'https://github.com/jiazhengfu912-lang/dsh-desktop-community/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe'
+          $checksumLine = Get-Content -LiteralPath 'apps/desktop/release/SHA256SUMS.txt' | Select-Object -First 1
+          if ($checksumLine -notmatch '^([0-9A-Fa-f]{64})  DSH-Desktop-Community-Setup-x64\.exe$') {
+            throw 'SHA256SUMS.txt does not contain the fixed installer entry'
+          }
+          $expectedSha256 = $Matches[1].ToUpperInvariant()
+          try {
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              try {
+                Remove-Item -LiteralPath $downloadedInstaller -Force -ErrorAction SilentlyContinue
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadedInstaller -UseBasicParsing
+                if (-not (Test-Path -LiteralPath $downloadedInstaller -PathType Leaf)) {
+                  throw 'fixed latest download did not produce the installer asset'
+                }
+                $actualSha256 = (Get-FileHash -LiteralPath $downloadedInstaller -Algorithm SHA256).Hash.ToUpperInvariant()
+                if ($actualSha256 -ne $expectedSha256) {
+                  throw "fixed latest download SHA-256 mismatch: expected $expectedSha256, got $actualSha256"
+                }
+                break
+              }
+              catch {
+                if ($attempt -eq 5) { throw }
+                Start-Sleep -Seconds (2 * $attempt)
+              }
+            }
+
+            ./apps/desktop/build/smoke-installer.ps1 -InstallerPath $downloadedInstaller
+          }
+          finally {
+            $resolvedDownloadRoot = [IO.Path]::GetFullPath($downloadRoot)
+            $resolvedRunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+            if (-not $resolvedDownloadRoot.StartsWith($resolvedRunnerTemp, [StringComparison]::OrdinalIgnoreCase) -or
+                -not (Split-Path -Leaf $resolvedDownloadRoot).StartsWith('dsh-latest-download-', [StringComparison]::Ordinal)) {
+              throw "refusing to remove unexpected download path $resolvedDownloadRoot"
+            }
+            Remove-Item -LiteralPath $resolvedDownloadRoot -Recurse -Force
+          }

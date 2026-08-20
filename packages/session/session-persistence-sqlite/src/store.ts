@@ -16,11 +16,16 @@ import {
 } from '@deepseek-ai/dsh-session'
 import {
   SessionPersistenceRevision,
+  SessionRevisionChangedError,
+  SessionWriterSupersededError,
   type PersistenceBackend,
   type SessionPersistenceRevision as PersistenceRevision,
   type SessionPersistenceSnapshot,
+  type SessionWriterLease,
   type StoredPrefix,
   type StoredSuffix,
+  type WriteCommit,
+  type WriteExpectation,
 } from '@deepseek-ai/dsh-session-persistence'
 import {
   MAX_PACKED_ROW_MEMBERS,
@@ -170,29 +175,61 @@ export class SqliteStore implements PersistenceBackend<number> {
     return { meta: rowToMeta(snapshot.row), events: preserved.filter(event => event.seq >= fromSeq) }
   }
 
+  async acquireWriter(meta: SessionHeader, signal?: AbortSignal): Promise<SessionWriterLease | undefined> {
+    await this.observe(signal)
+    const token = `${Date.now()}:${randomUUID()}`
+    this.db.exec(sql('begin-immediate'))
+    try {
+      validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.db.prepare(sql('upsert-writer-lease')).run(meta.id, token, process.pid)
+      this.db.exec(sql('commit'))
+      return { token }
+    } catch (error: unknown) {
+      this.rollback(error, 'writer lease acquisition')
+    }
+  }
+
+  async releaseWriter(meta: SessionHeader, lease: SessionWriterLease): Promise<void> {
+    await this.open()
+    this.db.exec(sql('begin-immediate'))
+    try {
+      validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.db.prepare(sql('delete-writer-lease')).run(meta.id, lease.token)
+      this.db.exec(sql('commit'))
+    } catch (error: unknown) {
+      this.rollback(error, 'writer lease release')
+    }
+  }
+
   async appendBatch(
     meta: SessionHeader,
     events: readonly SessionEvent[],
     isMaterialized: boolean,
-  ): Promise<void> {
+    expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     await this.open()
-    if (events.length === 0) return
+    if (events.length === 0) throw new Error(`session ${meta.id} append batch must not be empty`)
     this.db.exec(sql('begin-immediate'))
     try {
       validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.assertWriterLease(meta, expected)
+      this.assertRevisionCurrent(meta, expected)
       const tailRows = this.tailRows(meta.id)
       const currentLast = this.logicalLastEvent(meta.id, tailRows)
-      const expected = currentLast === undefined ? 0 : currentLast.seq + 1
+      const nextSeq = currentLast === undefined ? 0 : currentLast.seq + 1
+      if (nextSeq !== expected.nextSeq) throw new SessionRevisionChangedError(meta.id)
       const first = events[0] as SessionEvent
-      if (first.seq !== expected) {
-        throw new Error(`session ${meta.id} append starts at seq ${first.seq}, stored next seq is ${expected}`)
+      if (first.seq !== nextSeq) {
+        throw new Error(`session ${meta.id} append starts at seq ${first.seq}, stored next seq is ${nextSeq}`)
       }
       if (!isMaterialized) this.writeRow(meta)
 
       const insert = this.insertStatement()
       for (const record of packChunkRuns(events)) this.insertRecord(insert, meta.id, bindRecord(record))
       this.incrementRevision(meta.id)
+      const commit = this.currentRevision(meta.id)
       this.db.exec(sql('commit'))
+      return commit
     } catch (error: unknown) {
       this.rollback(error, 'append')
     }
@@ -202,16 +239,22 @@ export class SqliteStore implements PersistenceBackend<number> {
     meta: SessionHeader,
     tornMarker: number | undefined,
     closers: readonly SessionEvent[],
-  ): Promise<void> {
+    expected: WriteExpectation,
+  ): Promise<WriteCommit> {
     await this.open()
-    if (tornMarker === undefined && closers.length === 0) return
+    if (tornMarker === undefined && closers.length === 0) {
+      throw new Error(`session ${meta.id} repair must change the durable log`)
+    }
     this.db.exec(sql('begin-immediate'))
     try {
       validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.assertWriterLease(meta, expected)
+      this.assertRevisionCurrent(meta, expected)
       const row = this.rowFor(meta.id)
       if (row === undefined) throw new Error(`session ${meta.id} metadata row is missing`)
       const currentRows = this.db.prepare(sql('select-events')).all(meta.id).map(decodeEventRow)
       const current = scanRows(currentRows)
+      if (current.preserved.length !== expected.nextSeq) throw new SessionRevisionChangedError(meta.id)
       if (tornMarker !== undefined) {
         if (current.tornFrom !== tornMarker) {
           throw new Error(`session ${meta.id} repair is stale: physical tail no longer starts at seq ${tornMarker}`)
@@ -232,7 +275,9 @@ export class SqliteStore implements PersistenceBackend<number> {
         for (const closer of closers) this.insertRecord(insert, meta.id, bindRecord(closer))
       }
       this.incrementRevision(meta.id)
+      const commit = this.currentRevision(meta.id)
       this.db.exec(sql('commit'))
+      return commit
     } catch (error: unknown) {
       this.rollback(error, 'repair')
     }
@@ -312,6 +357,29 @@ export class SqliteStore implements PersistenceBackend<number> {
       .run(id)
     /* v8 ignore next -- materialized writes follow coordinator create(); other writes upsert in this transaction. */
     if (Number(updated.changes) !== 1) throw new Error(`session ${id} metadata row is missing`)
+  }
+
+  private assertWriterLease(meta: SessionHeader, expected: WriteExpectation): void {
+    const value = this.db.prepare(sql('select-writer-lease')).get(meta.id) as { token?: unknown } | undefined
+    if (value?.token !== expected.lease.token) throw new SessionWriterSupersededError(meta.id)
+  }
+
+  private assertRevisionCurrent(meta: SessionHeader, expected: WriteExpectation): void {
+    const row = this.rowFor(meta.id)
+    if (expected.revision === undefined) {
+      if (row !== undefined) throw new SessionRevisionChangedError(meta.id)
+      return
+    }
+    if (row === undefined || sqliteRevision(this.storeIdentity, row) !== expected.revision) {
+      throw new SessionRevisionChangedError(meta.id)
+    }
+  }
+
+  private currentRevision(id: SessionId): WriteCommit {
+    const row = this.rowFor(id)
+    /* v8 ignore next -- a committed mutation always retains its materialized row. */
+    if (row === undefined) throw new Error(`session ${id} metadata row is missing after mutation`)
+    return { revision: sqliteRevision(this.storeIdentity, row) }
   }
 
   private tailRows(id: SessionId): EventRow[] {

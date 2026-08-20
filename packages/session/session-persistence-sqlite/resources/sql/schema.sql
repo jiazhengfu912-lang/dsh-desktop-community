@@ -28,3 +28,9 @@ CREATE TABLE events (
   ignorable         INTEGER CHECK (ignorable IS NULL OR ignorable IN (0, 1)),
   PRIMARY KEY (session_id, seq)
 ) STRICT;
+
+CREATE TABLE writer_leases (
+  session_id TEXT PRIMARY KEY,
+  token      TEXT NOT NULL,
+  pid        INTEGER NOT NULL
+) STRICT;

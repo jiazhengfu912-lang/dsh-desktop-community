@@ -6,6 +6,7 @@ import {
   type ClientRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientConnectionRpc } from '../rpc.ts'
+import type { DesktopIpcFetch } from './desktop-bridge.ts'
 import { randomUuid } from './random-uuid.ts'
 
 const INTERNAL_BASE = 'http://dsh.internal'
@@ -13,10 +14,13 @@ const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
 /**
- * Create the browser-backed generic RPC caller.
+ * Build a generic RPC caller over one fetch implementation (browser fetch or
+ * the desktop IPC bridge). Correlation and envelope validation are identical
+ * either way — only the transport aspect differs.
+ * @param fetchImpl - the transport fetch; defaults to the browser's global fetch.
  * @returns caller that owns request correlation and response-envelope validation.
  */
-export function createWebConnectionRpc(): ClientConnectionRpc {
+function createFetchConnectionRpc(fetchImpl: DesktopIpcFetch): ClientConnectionRpc {
   return {
     async call(channel, endpoint, payload, signal) {
       assertTarget(channel, endpoint)
@@ -27,7 +31,7 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
         method: endpoint,
         payload,
       }
-      const response = await globalThis.fetch(
+      const response = await fetchImpl(
         new URL(`${channel}/${endpoint}`, resolveBase()),
         {
           method: 'POST',
@@ -46,6 +50,14 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
       return full.result
     },
   }
+}
+
+/**
+ * Create the same-origin HTTP-backed generic RPC caller.
+ * @returns caller that owns request correlation and response-envelope validation.
+ */
+export function createWebConnectionRpc(): ClientConnectionRpc {
+  return createFetchConnectionRpc((input, init) => globalThis.fetch(input, init))
 }
 
 function resolveBase(): string {

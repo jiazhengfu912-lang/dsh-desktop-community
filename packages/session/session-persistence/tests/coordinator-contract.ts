@@ -1,4 +1,4 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, MessageId, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Shared write-path orchestration contract for backends using {@link PersistenceCoordinator}.
  * Unlike the public storage-semantics suite in `contract.ts`, it covers SessionStore event wiring,
@@ -31,6 +31,9 @@ export interface CoordinatorFixture {
    * `commitRepair`. Omit only when the backend structurally cannot produce torn tails.
    */
   corruptTail?: (id: SessionId, cwd: string | undefined) => Promise<void>
+
+  /** Whether this backend enforces cross-process writer ownership. */
+  supportsWriterLease?: boolean
 
   /** Tear down the storage scope (remove the temp dir / file). */
   cleanup: () => Promise<void>
@@ -1474,6 +1477,109 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const reloaded = await second.ctx.sessionPersistence.load(SessionId('torn'))
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
       } finally {
+        await second.fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rejects a superseded writer after another instance crash-repairs the session', async () => {
+      const fix = await makeFixture()
+      if (fix.supportsWriterLease !== true) {
+        await fix.cleanup()
+        return
+      }
+      const first = await freshCtx(fix)
+      const second = await freshCtx(fix)
+      try {
+        const id = SessionId('single-writer')
+        const header = meta(id, WORK)
+        await first.ctx.sessionPersistence.create(header)
+        await first.ctx.sessionPersistence.append(id, [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+        ])
+
+        const repaired = await second.ctx.sessionPersistence.load(id)
+        expect(repaired.events.at(-1)).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'interrupted' } },
+        })
+
+        await expect(first.ctx.sessionPersistence.append(id, [
+          { type: 'step/end', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+          { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+        ])).rejects.toThrow(/superseded|another live writer|durable revision changed/)
+
+        const final = await second.ctx.sessionPersistence.load(id)
+        expect(final.events.map(event => event.seq)).toEqual([0, 1, 2, 3])
+        expect(final.events.at(-1)).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'interrupted' } },
+        })
+      } finally {
+        await first.fiber.dispose()
+        await second.fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rejects a superseded late tool result after host-restart repair', async () => {
+      const fix = await makeFixture()
+      if (fix.supportsWriterLease !== true) {
+        await fix.cleanup()
+        return
+      }
+      const first = await freshCtx(fix)
+      const second = await freshCtx(fix)
+      try {
+        const id = SessionId('single-writer-tool')
+        const header = meta(id, WORK)
+        const assistantMessage = freezeMessage({
+          id: MessageId('single-writer-assistant'),
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: CallId('call-1'), name: 'run_code', arguments: '{}' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        })
+        await first.ctx.sessionPersistence.create(header)
+        await first.ctx.sessionPersistence.append(id, [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+          { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, message: assistantMessage }, surfaceOp: 'append' },
+          { type: 'tool/call', seq: 3, time: 4, data: { turn: 1, step: 1, callId: CallId('call-1'), name: 'run_code', arguments: '{}' } },
+        ] as SessionEvent[])
+
+        const repaired = await second.ctx.sessionPersistence.load(id)
+        expect(repaired.events.map(event => event.type)).toEqual([
+          'turn/start', 'step/start', 'assistant/message', 'tool/call',
+          'tool/result', 'step/end', 'turn/end',
+        ])
+
+        await expect(first.ctx.sessionPersistence.append(id, [
+          {
+            type: 'tool/result',
+            seq: 4,
+            time: 5,
+            data: {
+              turn: 1,
+              step: 1,
+              callId: CallId('call-1'),
+              content: [{ type: 'text', text: 'late' }],
+              isError: false,
+            },
+            surfaceOp: 'append',
+          },
+          { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
+          { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+        ] as unknown as SessionEvent[])).rejects.toThrow(/superseded|another live writer|durable revision changed/)
+
+        const final = await second.ctx.sessionPersistence.load(id)
+        const lastTurnEnd = final.events.findLastIndex(event => event.type === 'turn/end')
+        expect(final.events.slice(lastTurnEnd + 1)).toHaveLength(0)
+        expect(final.events.some(event => event.type === 'tool/result'
+          && JSON.stringify(event.data).includes('late'))).toBe(false)
+        expect(final.events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])
+      } finally {
+        await first.fiber.dispose()
         await second.fiber.dispose()
         await fix.cleanup()
       }

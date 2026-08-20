@@ -3,7 +3,13 @@
 // is intentionally dropped). Native 23.16x17.04, rendered 24x18 by default;
 // hero usage scales to 34x25. Color rides currentColor (wordmark ink).
 
-import type { IconProps } from './icons/props.ts'
+/** Presentation props for the official standalone mark. */
+export interface FishLogoProps {
+  /** Mark width in CSS pixels. */
+  size?: number | undefined
+  /** Optional layout class supplied by the host surface. */
+  className?: string | undefined
+}
 
 /**
  * Render the fish logo.
@@ -11,7 +17,7 @@ import type { IconProps } from './icons/props.ts'
  * @param props.className - extra class for layout placement.
  * @returns the logo svg (aria-hidden; pair with the wordmark for accessibility).
  */
-export function FishLogo({ size = 24, className }: IconProps) {
+export function FishLogo({ size = 24, className }: FishLogoProps) {
   return (
     <svg
       width={size}

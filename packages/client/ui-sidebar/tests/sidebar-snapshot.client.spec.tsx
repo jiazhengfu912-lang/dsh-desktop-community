@@ -8,7 +8,7 @@
  * holes (sidebar.workspaces / sidebar.settings) have no registrant here, so
  * the snapshots pin the shell chrome itself.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, waitFor } from '@testing-library/react'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -17,8 +17,6 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
-
-beforeEach(() => { vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abc1234') })
 
 afterEach(() => {
   cleanup()
@@ -47,16 +45,14 @@ describe('sidebar shell snapshots', () => {
   it('renders the expanded column in the default locale (zh, no setLocale)', async () => {
     const { runtime } = await bench()
     const slot = runtime.renderSlot('sidebar', { collapsed: false, width: 300 })
-    // Wordmark + capsule both start a session in the expanded state.
     expect(slot.view.getAllByRole('button', { name: '新建会话' })).toHaveLength(2)
     expect(slot.container).toMatchSnapshot()
     await runtime.dispose()
   })
 
-  it('renders the expanded column (wordmark, capsule, empty holes)', async () => {
+  it('renders the expanded column (neutral action fallbacks and controls)', async () => {
     const { runtime } = await bench({ locale: 'en' })
     const slot = runtime.renderSlot('sidebar', { collapsed: false, width: 300 })
-    // Wordmark + capsule both start a session in the expanded state.
     expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(2)
     expect(slot.container).toMatchSnapshot()
     await runtime.dispose()
@@ -68,7 +64,7 @@ describe('sidebar shell snapshots', () => {
     const shell = slot.container.firstElementChild
     slot.update({ collapsed: true, width: 56 })
     // The wide content (wordmark shortcut) unmounts at the 150ms settle;
-    // only the rail's capsule remains a New-session button.
+    // only the rail's New-session control remains.
     await waitFor(() => {
       expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
     })

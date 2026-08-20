@@ -1,0 +1,84 @@
+.viewer {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.markdownViewport,
+.officeViewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+}
+
+.pdfFrame {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: none;
+  background: var(--dsw-alias-bg-base);
+}
+
+.markdown {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 40px 80px;
+  box-sizing: border-box;
+}
+
+.docx,
+.pptx {
+  min-height: 100%;
+}
+
+.docx:not([data-ready]),
+.pptx:not([data-ready]) {
+  visibility: hidden;
+}
+
+.docx :global(.docx-wrapper) {
+  min-height: 100%;
+  padding: 24px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.docx :global(.docx-wrapper > section.docx) {
+  margin-bottom: 24px;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.previewMessage,
+.previewError {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.previewError {
+  color: var(--dsw-alias-label-error);
+}
+
+@media (max-width: 760px) {
+  .markdown {
+    padding: 24px 20px 64px;
+  }
+}

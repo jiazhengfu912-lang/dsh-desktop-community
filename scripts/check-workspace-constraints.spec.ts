@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
+  checkPrivateCommunityAssemblyManifest,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
 
@@ -71,6 +72,46 @@ describe('experimental workspace constraints', () => {
 
     expect(checkExperimentalDependencyIsolation(manifests)).toEqual([
       '@deepseek-ai/dsh-python-runtime: dependencies.@deepseek-ai/dsh-experimental-prototype must not reference an experimental package',
+    ])
+  })
+})
+
+describe('private community assembly constraints', () => {
+  const communityRepository = (directory: string) => ({
+    type: 'git',
+    url: 'git+https://github.com/jiazhengfu912-lang/dsh-desktop-community.git',
+    directory,
+  })
+
+  it.each([
+    ['apps/desktop', '@deepseek-ai/dsh-desktop'],
+    ['packages/client/ui-brand-community', '@deepseek-ai/dsh-client-ui-brand-community'],
+    ['packages/extensions/document-viewer', '@deepseek-ai/dsh-document-viewer'],
+    ['packages/host/directory-picker-electron', '@deepseek-ai/dsh-host-directory-picker-electron'],
+  ])('accepts private community assembly %s tied to its source directory', (dir, name) => {
+    expect(checkPrivateCommunityAssemblyManifest({
+      dir,
+      manifest: {
+        name,
+        private: true,
+        repository: communityRepository(dir),
+      },
+    })).toEqual([])
+  })
+
+  it('rejects npm publication metadata and an ambiguous source location', () => {
+    expect(checkPrivateCommunityAssemblyManifest({
+      dir: 'apps/desktop',
+      manifest: {
+        name: '@deepseek-ai/dsh-desktop',
+        private: false,
+        publishConfig: { access: 'public' },
+        repository: { type: 'git', url: communityRepository('apps/desktop').url },
+      },
+    })).toEqual([
+      '@deepseek-ai/dsh-desktop: community assembly must set "private": true',
+      '@deepseek-ai/dsh-desktop: community assembly must omit publishConfig',
+      `@deepseek-ai/dsh-desktop: community assembly repository must use ${communityRepository('apps/desktop').url} with directory apps/desktop`,
     ])
   })
 })

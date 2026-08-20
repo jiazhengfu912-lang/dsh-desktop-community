@@ -49,6 +49,16 @@ describe('SystemPrompt', () => {
       expect(renderPrompt(assembly)).toBe('You are a helpful software engineer assistant.')
     })
 
+    it('uses the deployment identity configured by a product assembly', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt, {
+        identity: 'You are an AI agent powered by DSH Desktop Community.',
+      })
+
+      expect(renderPrompt(await ctx.systemPrompt.assemble()))
+        .toBe('You are an AI agent powered by DSH Desktop Community.')
+    })
+
     it('can suppress runtime context without evaluating providers or accepting waterfall additions', async () => {
       const ctx = new Context()
       await ctx.plugin(SystemPrompt, { includeRuntimeContext: false })

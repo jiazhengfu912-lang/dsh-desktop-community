@@ -1,0 +1,79 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-ci.yml'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/desktop-release-notes.md'
+      - 'apps/desktop/**'
+      - 'apps/web/**'
+      - 'native/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'vendor/**'
+      - '.npmrc'
+      - 'COMMUNITY_NOTICE.md'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
+      - 'UPSTREAM_BASE'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsdown.config.ts'
+      - 'tsconfig*.json'
+      - 'vitest*.ts'
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace libraries
+        run: pnpm run build
+      - name: Type-check desktop
+        run: pnpm --filter @deepseek-ai/dsh-desktop run typecheck
+      - name: Test desktop
+        run: pnpm --filter @deepseek-ai/dsh-desktop run test
+      - name: Prepare Windows packaging tools
+        run: pnpm --filter @deepseek-ai/dsh-desktop run prepare:windows-builder-cache
+      - name: Package and run packaged smokes
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package
+      - name: Smoke-test installer lifecycle
+        shell: powershell
+        run: ./apps/desktop/build/smoke-installer.ps1
+      - name: Create checksums and build metadata
+        run: node apps/desktop/build/create-release-metadata.mjs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dsh-desktop-community-windows-x64
+          path: |
+            apps/desktop/release/DSH-Desktop-Community-Setup-x64.exe
+            apps/desktop/release/SHA256SUMS.txt
+            apps/desktop/release/build-info.json
+          if-no-files-found: error
+          retention-days: 14

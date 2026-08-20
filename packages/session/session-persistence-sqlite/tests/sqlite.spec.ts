@@ -23,6 +23,7 @@ import {
   meta,
   runPersistenceContract,
 } from '../../session-persistence/tests/contract.ts'
+import type { SessionWriterLease, WriteCommit } from '@deepseek-ai/dsh-session-persistence'
 import { MAX_PACKED_DATA_BYTES } from '../src/codec.ts'
 import {
   decodeEventRow,
@@ -113,6 +114,52 @@ function chunkLog(count: number): SessionEvent[] {
       data: { turn: 1, reason: { kind: 'completed' } },
     },
   ]
+}
+
+const directLeases = new WeakMap<SqliteStore, Map<SessionId, SessionWriterLease>>()
+
+async function directLease(store: SqliteStore, header: ReturnType<typeof meta>): Promise<SessionWriterLease> {
+  let leases = directLeases.get(store)
+  if (leases === undefined) {
+    leases = new Map()
+    directLeases.set(store, leases)
+  }
+  let lease = leases.get(header.id)
+  if (lease === undefined) {
+    lease = await store.acquireWriter(header)
+    if (lease === undefined) throw new Error('test store did not acquire a writer lease')
+    leases.set(header.id, lease)
+  }
+  return lease
+}
+
+async function directAppend(
+  store: SqliteStore,
+  header: ReturnType<typeof meta>,
+  events: readonly SessionEvent[],
+): Promise<WriteCommit> {
+  const lease = await directLease(store, header)
+  const revision = await store.readStoredRevision(header.id)
+  return store.appendBatch(header, events, revision !== undefined, {
+    lease,
+    revision,
+    nextSeq: events[0]?.seq ?? 0,
+  })
+}
+
+async function directRepair(
+  store: SqliteStore,
+  header: ReturnType<typeof meta>,
+  tornMarker: number | undefined,
+  closers: readonly SessionEvent[],
+): Promise<WriteCommit> {
+  const lease = await directLease(store, header)
+  const stored = await store.loadStored(header.id)
+  return store.commitRepair(header, tornMarker, closers, {
+    lease,
+    revision: stored?.revision,
+    nextSeq: stored?.events.length ?? 0,
+  })
 }
 
 async function measureWriteTraffic(
@@ -226,6 +273,7 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
         .run(id, next, 'assistant/chunk', 99, '{not valid json', null)
       db.close()
     },
+    supportsWriterLease: true,
     cleanup: async () => { await rm(directory, { recursive: true, force: true }) },
   }
 })
@@ -322,7 +370,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const path = await freshDbPath('dsh-sqlite-overlap-')
     const store = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta('overlap')
-    await store.appendBatch(header, [chunk(0), chunk(1), chunk(2)], false)
+    await directAppend(store, header, [chunk(0), chunk(1), chunk(2)])
 
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event'))
@@ -344,7 +392,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const path = await freshDbPath('dsh-sqlite-busy-')
     const store = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: 1_000 })
     const header = meta('busy')
-    await store.appendBatch(header, [chunk(0)], false)
+    await directAppend(store, header, [chunk(0)])
 
     const holder = spawn(process.execPath, ['--input-type=module', '-e', String.raw`
       import { DatabaseSync } from 'node:sqlite';
@@ -359,7 +407,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
     })
     try {
       await once(holder.stdout, 'data')
-      await expect(store.appendBatch(header, [chunk(1)], true)).resolves.toBeUndefined()
+      await expect(directAppend(store, header, [chunk(1)])).resolves.toHaveProperty('revision')
       const code = await exited
       expect(code).toBe(0)
       expect((await store.loadStored(header.id))?.events).toEqual([chunk(0), chunk(1)])
@@ -384,9 +432,14 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const first = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const second = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta(SessionId('stale'))
-    await first.appendBatch(header, [chunk(0)], false)
-    await second.appendBatch(header, [chunk(1)], true)
-    await expect(first.appendBatch(header, [chunk(1)], true)).rejects.toThrow(/stored next seq is 2/)
+    const firstLease = await directLease(first, header)
+    const firstCommit = await first.appendBatch(header, [chunk(0)], false, {
+      lease: firstLease, revision: undefined, nextSeq: 0,
+    })
+    await directAppend(second, header, [chunk(1)])
+    await expect(first.appendBatch(header, [chunk(1)], true, {
+      lease: firstLease, revision: firstCommit.revision, nextSeq: 1,
+    })).rejects.toThrow(/superseded/)
     expect((await first.loadStored(header.id))?.events).toEqual([chunk(0), chunk(1)])
     await first.close()
     await second.close()
@@ -397,14 +450,19 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const stale = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const winner = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta(SessionId('stale-repair'))
-    await stale.appendBatch(header, [chunk(0)], false)
+    const staleLease = await directLease(stale, header)
+    const staleCommit = await stale.appendBatch(header, [chunk(0)], false, {
+      lease: staleLease, revision: undefined, nextSeq: 0,
+    })
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
     db.close()
     expect((await stale.loadStored(header.id))?.tornMarker).toBe(1)
-    await winner.commitRepair(header, 1, [])
-    await winner.appendBatch(header, [chunk(1), chunk(2)], true)
-    await expect(stale.commitRepair(header, 1, [])).rejects.toThrow(/repair is stale/)
+    await directRepair(winner, header, 1, [])
+    await directAppend(winner, header, [chunk(1), chunk(2)])
+    await expect(stale.commitRepair(header, 1, [], {
+      lease: staleLease, revision: staleCommit.revision, nextSeq: 1,
+    })).rejects.toThrow(/superseded/)
     expect((await stale.loadStored(header.id))?.events).toEqual([chunk(0), chunk(1), chunk(2)])
     await stale.close()
     await winner.close()
@@ -412,6 +470,29 @@ describe('SessionPersistenceSqlite physical packing', () => {
 })
 
 describe('SessionPersistenceSqlite schema ownership', () => {
+  it('migrates an exact schema 17 database in place without changing session data', async () => {
+    const path = await freshDbPath('dsh-sqlite-migrate-17-')
+    const header = meta('migrate-17')
+    const events = chunkLog(4)
+    const seed = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
+    await directAppend(seed, header, events)
+    await seed.close()
+
+    const legacy = new DatabaseSync(path)
+    legacy.exec(testSql('drop-writer-leases'))
+    legacy.exec(testSql('set-user-version-17'))
+    legacy.close()
+
+    const migrated = await openDatabase(DatabaseSync, path, 'wal', DEFAULT_BUSY_TIMEOUT_MS)
+    expect(migrated.prepare(testSql('select-user-version')).get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(migrated.prepare(sql('select-writer-lease')).get(header.id)).toBeUndefined()
+    migrated.close()
+
+    const reopened = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
+    expect((await reopened.loadStored(header.id))?.events).toEqual(events)
+    await reopened.close()
+  })
+
   it('accepts every configured journal mode and SQLite memory mode result', async () => {
     const resources = {
       wal: 'journal-mode-wal',
@@ -647,7 +728,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
     const path = await freshDbPath('dsh-sqlite-metadata-')
     const store = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta('invalid-metadata')
-    await store.appendBatch(header, [chunk(0)], false)
+    await directAppend(store, header, [chunk(0)])
     const db = new DatabaseSync(path)
     db.prepare(testSql('update-invalid-session-metadata')).run(header.id)
     db.close()
@@ -712,17 +793,19 @@ describe('SessionPersistenceSqlite edge behavior', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps empty mutations inert and rolls back a repair without metadata', async () => {
+  it('rejects empty mutations and rolls back a repair without metadata', async () => {
     const store = new SqliteStore({
       path: ':memory:',
       journalMode: 'wal',
       busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS,
     })
     const header = meta('empty-store')
-    await store.appendBatch(header, [], false)
-    await store.commitRepair(header, undefined, [])
+    const lease = await directLease(store, header)
+    const expected = { lease, revision: undefined, nextSeq: 0 }
+    await expect(store.appendBatch(header, [], false, expected)).rejects.toThrow(/must not be empty/)
+    await expect(store.commitRepair(header, undefined, [], expected)).rejects.toThrow(/must change/)
     expect(await store.readStoredRevision(header.id)).toBeUndefined()
-    await expect(store.commitRepair(header, 0, [])).rejects.toThrow(/metadata row is missing/)
+    await expect(store.commitRepair(header, 0, [], expected)).rejects.toThrow(/metadata row is missing/)
     await store.close()
   })
 
@@ -730,18 +813,18 @@ describe('SessionPersistenceSqlite edge behavior', () => {
     const path = await freshDbPath('dsh-sqlite-repair-validation-')
     const store = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta('repair-validation')
-    await store.appendBatch(header, [chunk(0)], false)
+    await directAppend(store, header, [chunk(0)])
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
     db.close()
-    await expect(store.commitRepair(header, undefined, [chunk(1)])).rejects.toThrow(/omitted current torn tail/)
-    await store.commitRepair(header, 1, [])
-    await expect(store.commitRepair(header, undefined, [chunk(2)])).rejects.toThrow(/closer starts at seq 2/)
+    await expect(directRepair(store, header, undefined, [chunk(1)])).rejects.toThrow(/omitted current torn tail/)
+    await directRepair(store, header, 1, [])
+    await expect(directRepair(store, header, undefined, [chunk(2)])).rejects.toThrow(/closer starts at seq 2/)
 
     const cleared = new DatabaseSync(path)
     cleared.prepare(testSql('delete-session-events')).run(header.id)
     cleared.close()
-    await store.commitRepair(header, undefined, [chunk(0)])
+    await directRepair(store, header, undefined, [chunk(0)])
     expect((await store.loadStored(header.id))?.events).toEqual([chunk(0)])
     await store.close()
   })
@@ -750,13 +833,13 @@ describe('SessionPersistenceSqlite edge behavior', () => {
     const path = await freshDbPath('dsh-sqlite-tail-')
     const store = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
     const header = meta('invalid-tail')
-    await store.appendBatch(header, [chunk(0)], false)
+    await directAppend(store, header, [chunk(0)])
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event'))
       .run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
     db.close()
 
-    await expect(store.appendBatch(header, [chunk(2)], true)).rejects.toThrow(/invalid physical tail/)
+    await expect(directAppend(store, header, [chunk(2)])).rejects.toThrow(/invalid physical tail/)
     await store.close()
   })
 

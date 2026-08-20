@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: desktop-ci-${{ github.ref }}
+  group: desktop-ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:

@@ -32,6 +32,14 @@ describe('Community workflow triggers', () => {
     if (!isRecord(manifest) || !isRecord(manifest.scripts)) throw new TypeError('Desktop manifest must define scripts')
     expect(manifest.scripts.package).toContain('electron-builder --publish never')
   })
+
+  it('isolates manual Desktop validation from delayed push events', () => {
+    const workflow = loadWorkflow('.github/workflows/desktop-ci.yml')
+    expect(workflow.concurrency).toEqual({
+      group: 'desktop-ci-${{ github.ref }}-${{ github.event_name }}',
+      'cancel-in-progress': true,
+    })
+  })
 })
 
 describe('CI workflow', () => {

@@ -27,7 +27,7 @@
     "smoke:startup": "node build/smoke-startup.mjs",
     "smoke:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File build/smoke-installer.ps1",
     "release:metadata": "node build/create-release-metadata.mjs",
-    "package": "pnpm run build && pnpm run icon && pnpm run prepare:windows-builder-cache && electron-builder && pnpm run smoke:packaged && pnpm run smoke:startup && pnpm run release:metadata"
+    "package": "pnpm run build && pnpm run icon && pnpm run prepare:windows-builder-cache && electron-builder --publish never && pnpm run smoke:packaged && pnpm run smoke:startup && pnpm run release:metadata"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",

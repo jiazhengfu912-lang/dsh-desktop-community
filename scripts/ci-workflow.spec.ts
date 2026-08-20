@@ -26,6 +26,12 @@ describe('Community workflow triggers', () => {
       expect(actual, name).toEqual(expected)
     }
   })
+
+  it('keeps package assembly separate from GitHub Release publication', () => {
+    const manifest: unknown = JSON.parse(readFileSync(resolve(root, 'apps/desktop/package.json'), 'utf8'))
+    if (!isRecord(manifest) || !isRecord(manifest.scripts)) throw new TypeError('Desktop manifest must define scripts')
+    expect(manifest.scripts.package).toContain('electron-builder --publish never')
+  })
 })
 
 describe('CI workflow', () => {

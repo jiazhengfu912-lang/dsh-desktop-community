@@ -16,7 +16,7 @@ Desktop 应用、社区品牌、文档查看器和 Electron 目录选择器包�
 
 官方美术资源由 `ui-brand-official` 持有；通用侧边栏与会话包不提供产品美术 fallback。Desktop 构建器从应用目录排除官方品牌、徽章技能和未使用的 Web frontend 包，Desktop overlay 则安装 `ui-brand-community`。该插件还会遮蔽 `settings.onboarding` 中名为 `welcome-notice` 的单元并在不渲染内容的情况下完成它，因此 Desktop 应用不会继承上游产品专属的测试声明；共享 Web 插件及其确认记录保持不变。overlay 会把 `DSH Desktop Community` 作为模型可见的部署身份，同时保持共享 system-prompt 默认值不变。打包验证会拒绝已排除的包目录、鲸鱼资源、`logo=deepseek` 标记以及 renderer 和配置文本中的官方美术或产品名称 token；兼容包名仍然允许。
 
-发行构建从 `build-info.json` 记录的仓库 commit 开始，包含 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`，并通过 GitHub Releases 发布安装程序、`SHA256SUMS.txt` 和构建信息。安装程序不作为 Git blob 存储。未签名的预览版保持普通 latest release，使固定的 `/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe` URL 能够解析；发行说明明确缺少签名及其 SmartScreen 后果。
+发行构建从 `build-info.json` 记录的仓库 commit 开始，包含 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`，并通过 GitHub Releases 发布安装程序、`SHA256SUMS.txt` 和构建信息。软件包组装会禁止 Electron Builder 自动发布；只有经过验证的 GitHub Release 步骤负责发布产物。安装程序不作为 Git blob 存储。未签名的预览版保持普通 latest release，使固定的 `/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe` URL 能够解析；发行说明明确缺少签名及其 SmartScreen 后果。
 
 社区仓库中的自动 GitHub Actions 仅限 pull request 与 `master` 上的 Windows Desktop CI，以及 `desktop-v*` 标签的 Desktop 发行组装。两个 Desktop 工作流也提供 `workflow_dispatch`，使维护者无需改变自动事件策略即可重新执行同一套固定版本验证。其他继承自上游的工作流只能通过 `workflow_dispatch` 手动运行；可复用的单文件可执行程序构建器还保留 `workflow_call`，以便手动触发的 Python 发行调用它。本 fork 不假定拥有上游企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
 

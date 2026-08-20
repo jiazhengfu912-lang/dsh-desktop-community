@@ -25,7 +25,7 @@ pnpm run build
 
 The repository is a monorepo. Keep desktop-specific work in `apps/desktop` and change a shared package only when the desktop behavior requires it. Do not commit dependencies or output directories such as `node_modules`, `lib`, `dist`, or `release`.
 
-Only `.github/workflows/desktop-ci.yml` (Windows desktop checks for pull requests and `master`) and `.github/workflows/desktop-release.yml` (`desktop-v*` tags) run automatically in this community repository. Every other inherited upstream workflow requires an explicit `workflow_dispatch`; this fork does not assume access to the official enterprise runners, API secrets, GitHub Pages, or npm publishing credentials.
+Only `.github/workflows/desktop-ci.yml` (Windows desktop checks for pull requests and `master`) and `.github/workflows/desktop-release.yml` (`desktop-v*` tags) run automatically in this community repository. Maintainers can also dispatch either Desktop workflow explicitly to retry the same pinned validation. Every other inherited upstream workflow requires an explicit `workflow_dispatch`; this fork does not assume access to the official enterprise runners, API secrets, GitHub Pages, or npm publishing credentials.
 
 ## Pull requests
 

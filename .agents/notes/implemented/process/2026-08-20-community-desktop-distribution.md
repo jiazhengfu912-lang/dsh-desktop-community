@@ -18,7 +18,7 @@ Official artwork stays owned by `ui-brand-official`; generic sidebar and convers
 
 Release builds start from the repository commit recorded in `build-info.json`, include `LICENSE` and `THIRD_PARTY_NOTICES.md`, and publish the installer, `SHA256SUMS.txt`, and build information through GitHub Releases. The installer is not stored as a Git blob. The unsigned preview release remains a normal latest release so the stable `/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe` URL resolves; release text states the missing signature and SmartScreen consequence.
 
-Automatic GitHub Actions in the community repository are limited to Windows Desktop CI on pull requests and `master`, plus Desktop release assembly for `desktop-v*` tags. Every inherited upstream workflow is manual-only through `workflow_dispatch`; the reusable single-executable builder also keeps `workflow_call` so a manually dispatched Python release can invoke it. The fork does not assume access to upstream enterprise runners, API secrets, GitHub Pages, or npm publication credentials.
+Automatic GitHub Actions in the community repository are limited to Windows Desktop CI on pull requests and `master`, plus Desktop release assembly for `desktop-v*` tags. Both Desktop workflows also expose `workflow_dispatch` so maintainers can retry the same pinned validation without changing their automatic event policy. Every inherited upstream workflow is manual-only through `workflow_dispatch`; the reusable single-executable builder also keeps `workflow_call` so a manually dispatched Python release can invoke it. The fork does not assume access to upstream enterprise runners, API secrets, GitHub Pages, or npm publication credentials.
 
 The carrier pins Electron `43.4.1` exactly, and the Electron-native directory-picker package accepts the same supported major. Before application readiness, the main process acquires Electron's process-wide single-instance lock and subscribes to `second-instance`; a focus request received before either visible window exists remains pending until the splash is ready. No single-instance state is written into Electron `userData` or `DSH_HOME`.
 
@@ -35,7 +35,7 @@ Plugin package operations use the application's private Node and pnpm runtime th
 - Client validation proves that the community identity wins the `welcome-notice` slot cell, completes it without rendering, and restores the upstream occupant on unload. System-prompt validation proves the deployment identity override. Packaged validation starts the worker, document viewer, sidebar, Host, plugin fixture install, and plugin inventory from the packaged application and verifies the neutral brand closure.
 - Installer validation checks silent installation, installed startup, shortcut and executable metadata, license payloads, silent uninstallation, and preservation of a temporary `DSH_HOME`.
 - Release validation rejects a mismatched version/tag, records the upstream base and tool versions, and checks published asset hashes after download.
-- Workflow validation parses all Action YAML files and permits automatic repository events only in the two Desktop workflows; all other workflows expose `workflow_dispatch`, with the one documented reusable `workflow_call` exception.
+- Workflow validation parses all Action YAML files, permits automatic repository events only in the two Desktop workflows, and requires a manual dispatch path for every workflow; the documented reusable builder also keeps `workflow_call`.
 
 ## Alternatives considered
 

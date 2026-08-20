@@ -25,7 +25,7 @@ pnpm run build
 
 本仓库是 monorepo。桌面专属工作保留在 `apps/desktop`，仅在桌面行为确有需要时修改共享包。不要提交 `node_modules`、`lib`、`dist` 或 `release` 等依赖或输出目录。
 
-本社区仓库仅允许 `.github/workflows/desktop-ci.yml`（pull request 与 `master` 的 Windows 桌面检查）和 `.github/workflows/desktop-release.yml`（`desktop-v*` 标签）自动运行。其他继承自上游的工作流必须显式执行 `workflow_dispatch`；本 fork 不假定拥有官方企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
+本社区仓库仅允许 `.github/workflows/desktop-ci.yml`（pull request 与 `master` 的 Windows 桌面检查）和 `.github/workflows/desktop-release.yml`（`desktop-v*` 标签）自动运行。维护者也可以显式执行任一 Desktop 工作流，以重新运行同一套固定版本验证。其他继承自上游的工作流必须显式执行 `workflow_dispatch`；本 fork 不假定拥有官方企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
 
 ## Pull requests
 

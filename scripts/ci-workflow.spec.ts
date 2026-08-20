@@ -17,9 +17,9 @@ describe('Community workflow triggers', () => {
       if (!isRecord(workflow.on)) throw new TypeError(`${name} must define workflow events`)
       const actual = Object.keys(workflow.on).sort()
       const expected = name === 'desktop-ci.yml'
-        ? ['pull_request', 'push']
+        ? ['pull_request', 'push', 'workflow_dispatch']
         : name === 'desktop-release.yml'
-          ? ['push']
+          ? ['push', 'workflow_dispatch']
           : name === 'build-exe-for-python-sdk.yml'
             ? ['workflow_call', 'workflow_dispatch']
             : ['workflow_dispatch']

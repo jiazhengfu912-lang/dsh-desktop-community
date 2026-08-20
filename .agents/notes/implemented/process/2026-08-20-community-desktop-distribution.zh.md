@@ -18,7 +18,7 @@ Desktop 应用、社区品牌、文档查看器和 Electron 目录选择器包�
 
 发行构建从 `build-info.json` 记录的仓库 commit 开始，包含 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`，并通过 GitHub Releases 发布安装程序、`SHA256SUMS.txt` 和构建信息。安装程序不作为 Git blob 存储。未签名的预览版保持普通 latest release，使固定的 `/releases/latest/download/DSH-Desktop-Community-Setup-x64.exe` URL 能够解析；发行说明明确缺少签名及其 SmartScreen 后果。
 
-社区仓库中的自动 GitHub Actions 仅限 pull request 与 `master` 上的 Windows Desktop CI，以及 `desktop-v*` 标签的 Desktop 发行组装。其他继承自上游的工作流只能通过 `workflow_dispatch` 手动运行；可复用的单文件可执行程序构建器还保留 `workflow_call`，以便手动触发的 Python 发行调用它。本 fork 不假定拥有上游企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
+社区仓库中的自动 GitHub Actions 仅限 pull request 与 `master` 上的 Windows Desktop CI，以及 `desktop-v*` 标签的 Desktop 发行组装。两个 Desktop 工作流也提供 `workflow_dispatch`，使维护者无需改变自动事件策略即可重新执行同一套固定版本验证。其他继承自上游的工作流只能通过 `workflow_dispatch` 手动运行；可复用的单文件可执行程序构建器还保留 `workflow_call`，以便手动触发的 Python 发行调用它。本 fork 不假定拥有上游企业 runner、API secret、GitHub Pages 或 npm 发布凭据。
 
 载体将 Electron 精确固定为 `43.4.1`，Electron 原生目录选择器包接受同一受支持主版本。应用就绪前，主进程获取 Electron 的进程级单实例锁并订阅 `second-instance`；若聚焦请求到达时两个可见窗口都不存在，该请求会保持待处理，直到启动窗口就绪。单实例状态不会写入 Electron `userData` 或 `DSH_HOME`。
 
@@ -35,7 +35,7 @@ Desktop 应用、社区品牌、文档查看器和 Electron 目录选择器包�
 - 客户端验证会证明社区身份在 `welcome-notice` slot 单元中胜出、在不渲染内容的情况下完成该步骤，并在卸载时恢复上游 occupant。system-prompt 验证会证明部署身份覆盖。打包验证从打包应用中启动 worker、文档查看器、侧边栏、Host、插件 fixture 安装和插件清单，并验证中性品牌闭包。
 - 安装程序验证检查静默安装、已安装启动、快捷方式和可执行文件元数据、许可证载荷、静默卸载以及临时 `DSH_HOME` 的保留。
 - 发行验证拒绝不匹配的版本与 tag，记录上游基线和工具版本，并在下载后检查已发布产物哈希。
-- 工作流验证会解析所有 Actions YAML 文件，并且只允许两个 Desktop 工作流使用自动仓库事件；其他工作流均提供 `workflow_dispatch`，只有已记录的可复用构建器保留 `workflow_call` 例外。
+- 工作流验证会解析所有 Actions YAML 文件，仅允许两个 Desktop 工作流使用自动仓库事件，并要求每个工作流都提供手动执行入口；已记录的可复用构建器还保留 `workflow_call`。
 
 ## 备选方案
 

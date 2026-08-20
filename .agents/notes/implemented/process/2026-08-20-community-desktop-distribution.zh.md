@@ -26,7 +26,7 @@ Desktop 应用、社区品牌、文档查看器和 Electron 目录选择器包�
 
 桌面 Host 解析常规 DSH home 并打开 `web` profile。在同一台电脑、同一个 Windows 用户和相同 `DSH_HOME` 下，它会原位复用健康的 Host 会话、附件、设置、凭据引用、profiles、插件声明、预设和用户 skills。该行为是数据复用而不是迁移：它不复制项目文件、浏览器 `localStorage`、云端会话、其他用户或电脑上的数据，也不复制损坏的会话日志。Web 和 Desktop Host 不得同时写入同一个 home。
 
-插件包操作通过 `desktopProfiles` 和 `desktopPnpm` 使用应用的私有 Node 与 pnpm 运行时。该应用专属运行时把 pnpm 的 `store` 和 `cache` 目录放在 Electron `userData` 下，并继续读取活动 profile 的 `.npmrc` 与继承的代理配置。Desktop CLI 不经过命令 shell，直接启动随包 pnpm JavaScript 入口，因此 Unicode 路径和 Windows 命令元字符会保留为原始 argv。注册表和本地文件包不要求全局 pnpm 命令。由于 pnpm 在不同 Windows 宿主上会以不同方式实体化该依赖，打包后的本地文件冒烟允许生命周期标记位于安装副本或原始 `file:` 源目录；注册表冒烟仍要求安装位置中的标记。由 Git 支持的规格要求外部安装 Git for Windows，并在 Git 不可用时于调用 pnpm 前失败。
+插件包操作通过 `desktopProfiles` 和 `desktopPnpm` 使用应用的私有 Node 与 pnpm 运行时。该应用专属运行时把 pnpm 的 `store` 和 `cache` 目录放在 Electron `userData` 下，并继续读取活动 profile 的 `.npmrc` 与继承的代理配置。Desktop CLI 不经过命令 shell，直接启动随包 pnpm JavaScript 入口，因此 Unicode 路径和 Windows 命令元字符会保留为原始 argv。注册表和本地文件包不要求全局 pnpm 命令。打包后的本地文件冒烟会先对临时 profile 与 fixture 执行 realpath，再生成 pnpm 的精确 `file:` 构建许可键，因此 Windows 短名称和长名称别名不会把同一依赖识别为两个身份；生命周期标记可以位于安装副本或原始源目录。注册表冒烟仍要求安装位置中的标记。由 Git 支持的规格要求外部安装 Git for Windows，并在 Git 不可用时于调用 pnpm 前失败。
 
 ## 验证
 

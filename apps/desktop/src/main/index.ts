@@ -7,7 +7,7 @@
  */
 
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -195,8 +195,8 @@ async function runStartupSmoke(): Promise<void> {
       const workspacePath = join(profiles.current.dir, 'pnpm-workspace.yaml')
       const workspace = readFileSync(workspacePath, 'utf8')
       const fixtureBuildKey = `${PLUGIN_RUNTIME_SMOKE_PACKAGE}@file:${relative(
-        profiles.current.dir,
-        fixturePath,
+        realpathSync.native(profiles.current.dir),
+        realpathSync.native(fixturePath),
       ).replaceAll('\\', '/')}`
       writeFileSync(
         workspacePath,

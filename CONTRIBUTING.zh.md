@@ -35,6 +35,12 @@ pnpm run build
 - 非平凡的行为、架构、持久化、测试策略或发行流程决策必须新增或更新 Agent Note。
 - 说明改动内容、实际运行的检查以及仍未验证的验收层级。
 
+### 受保护的 master 分支
+
+每项进入 `master` 的变更都必须通过 pull request。分支保护要求 `windows-desktop` 检查通过，要求 pull request 分支在合并前与 `master` 保持最新，对管理员同样生效，并禁止 force push 和删除分支。所需审批数为零；即使没有第二位维护者，pull request 和 Windows 验证仍然是强制要求。
+
+Desktop CI 不使用路径过滤，会在每个 pull request 上运行，使所需检查始终报告结果。取舍说明参见[分支保护决策](.agents/notes/implemented/process/2026-08-20-community-master-branch-protection.md)。
+
 生成的安装程序是发行产物，不属于 PR 文件。公开截图必须使用临时 `DSH_HOME`、虚构工作区名称，且不得包含凭据或个人路径。
 
 ## 检查

@@ -2,28 +2,7 @@ name: Desktop CI
 
 # This is one of the community repository's only automatic workflows.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/desktop-ci.yml'
-      - '.github/workflows/desktop-release.yml'
-      - '.github/desktop-release-notes.md'
-      - 'apps/desktop/**'
-      - 'apps/web/**'
-      - 'native/**'
-      - 'packages/**'
-      - 'scripts/**'
-      - 'vendor/**'
-      - '.npmrc'
-      - 'COMMUNITY_NOTICE.md'
-      - 'LICENSE'
-      - 'THIRD_PARTY_NOTICES.md'
-      - 'UPSTREAM_BASE'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsdown.config.ts'
-      - 'tsconfig*.json'
-      - 'vitest*.ts'
+  pull_request: {}
   push:
     branches:
       - master

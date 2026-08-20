@@ -35,6 +35,12 @@ Only `.github/workflows/desktop-ci.yml` (Windows desktop checks for pull request
 - Add or update an Agent Note for non-trivial behavior, architecture, persistence, test-strategy, or release-process decisions.
 - State what changed, the exact checks run, and any acceptance layer that remains unverified.
 
+### Protected master branch
+
+Every change to `master` arrives through a pull request. Branch protection requires the `windows-desktop` check, requires the pull request branch to be current with `master`, applies to administrators, and blocks force pushes and branch deletion. The required approval count is zero; the pull request and Windows validation are mandatory even when no second maintainer is available.
+
+Desktop CI runs for every pull request without path filters so the required check always reports a result. See the [branch-protection decision](.agents/notes/implemented/process/2026-08-20-community-master-branch-protection.md) for the trade-offs.
+
 Generated installers are release assets, not pull-request files. Public screenshots must use a temporary `DSH_HOME`, fictitious workspace names, and no credentials or personal paths.
 
 ## Checks

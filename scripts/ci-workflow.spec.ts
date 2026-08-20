@@ -27,6 +27,12 @@ describe('Community workflow triggers', () => {
     }
   })
 
+  it('always reports the protected-branch Desktop check for pull requests', () => {
+    const workflow = loadWorkflow('.github/workflows/desktop-ci.yml')
+    if (!isRecord(workflow.on)) throw new TypeError('Desktop CI must define workflow events')
+    expect(workflow.on.pull_request).toEqual({})
+  })
+
   it('keeps package assembly separate from GitHub Release publication', () => {
     const manifest: unknown = JSON.parse(readFileSync(resolve(root, 'apps/desktop/package.json'), 'utf8'))
     if (!isRecord(manifest) || !isRecord(manifest.scripts)) throw new TypeError('Desktop manifest must define scripts')

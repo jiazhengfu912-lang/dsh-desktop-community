@@ -1,5 +1,6 @@
 name: Desktop CI
 
+# This is one of the community repository's only automatic workflows.
 on:
   pull_request:
     paths:

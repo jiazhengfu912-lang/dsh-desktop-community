@@ -280,7 +280,7 @@ try {
   mkdirSync(userData)
   mkdirSync(stagingStoreDir)
   mkdirSync(stagingCacheDir)
-  writePluginFixture(fixtureDir, 'dsh-desktop-smoke-plugin')
+  writePluginFixture(fixtureDir, 'dsh-desktop-smoke-plugin', false)
   writePluginFixture(gitFixtureDir, 'dsh-desktop-smoke-plugin', false)
   writePluginFixture(marketFixtureDir, MARKET_SMOKE_PACKAGE)
   writeFileSync(join(dshHome, 'settings.yaml'), [

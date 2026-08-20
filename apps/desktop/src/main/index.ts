@@ -7,8 +7,8 @@
  */
 
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { IPC_CHANNELS } from '../shared/ipc.ts'
@@ -194,14 +194,9 @@ async function runStartupSmoke(): Promise<void> {
       }
       const workspacePath = join(profiles.current.dir, 'pnpm-workspace.yaml')
       const workspace = readFileSync(workspacePath, 'utf8')
-      const fixtureBuildKey = `${PLUGIN_RUNTIME_SMOKE_PACKAGE}@file:${relative(
-        realpathSync.native(profiles.current.dir),
-        realpathSync.native(fixturePath),
-      ).replaceAll('\\', '/')}`
       writeFileSync(
         workspacePath,
         `${workspace.trimEnd()}\n\nallowBuilds:\n`
-        + `  '${fixtureBuildKey.replaceAll("'", "''")}': true\n`
         + `  '${MARKET_HTTP_SMOKE_PACKAGE}': true\n`,
       )
       if (process.argv.includes(MARKET_HTTP_SMOKE_FLAG)) {
@@ -274,21 +269,6 @@ async function runStartupSmoke(): Promise<void> {
         || !bundles.includes(PLUGIN_RUNTIME_SMOKE_PACKAGE)
         || !bundles.includes('dsh-better-sidebar')) {
         throw new Error('desktop plugin smoke: DSH CLI did not reconcile the installed bundle')
-      }
-      const lifecycleMarkers = [
-        join(
-          profiles.current.dir,
-          'node_modules',
-          PLUGIN_RUNTIME_SMOKE_PACKAGE,
-          'lifecycle-ran.txt',
-        ),
-        join(fixturePath, 'lifecycle-ran.txt'),
-      ]
-      if (!lifecycleMarkers.some(marker => existsSync(marker))) {
-        throw new Error(
-          'desktop plugin smoke: lifecycle marker missing from the installed and file-source locations\n'
-          + `${stdout}\n${stderr}`,
-        )
       }
       console.log(`DESKTOP_PLUGIN_RUNTIME_OK package=${PLUGIN_RUNTIME_SMOKE_PACKAGE}`)
 

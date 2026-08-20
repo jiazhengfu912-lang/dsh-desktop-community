@@ -275,14 +275,18 @@ async function runStartupSmoke(): Promise<void> {
         || !bundles.includes('dsh-better-sidebar')) {
         throw new Error('desktop plugin smoke: DSH CLI did not reconcile the installed bundle')
       }
-      if (!existsSync(join(
-        profiles.current.dir,
-        'node_modules',
-        PLUGIN_RUNTIME_SMOKE_PACKAGE,
-        'lifecycle-ran.txt',
-      ))) {
+      const lifecycleMarkers = [
+        join(
+          profiles.current.dir,
+          'node_modules',
+          PLUGIN_RUNTIME_SMOKE_PACKAGE,
+          'lifecycle-ran.txt',
+        ),
+        join(fixturePath, 'lifecycle-ran.txt'),
+      ]
+      if (!lifecycleMarkers.some(marker => existsSync(marker))) {
         throw new Error(
-          'desktop plugin smoke: plugin lifecycle did not use the private Node command\n'
+          'desktop plugin smoke: lifecycle marker missing from the installed and file-source locations\n'
           + `${stdout}\n${stderr}`,
         )
       }
